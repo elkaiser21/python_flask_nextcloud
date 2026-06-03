@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Search by date{% endblock %}
+
+{% block extra_css %}
+    <style>
+    .photo-card img {
+      object-fit: cover;
+      height: 220px;
+    }
+    .photo-card {
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .photo-card:hover {
+      transform: scale(1.02);
+      box-shadow: 0 0.5rem 1rem rgba(0,0,0,.15);
+    }
+
+  </style>
+{% endblock %}
+
+{% block content %}
+
+<div class="container py-4">
+
+  <h1 class="mb-4">
+    {{ year }}-{{ "%02d"|format(month) }}-{{ "%02d"|format(day) }}
+  </h1>
+
+  <div class="row g-3">
+
+    {% for filename in photos %}
+      <div class="col-6 col-sm-4 col-md-3 col-lg-2">
+
+        <a href="{{ url_for('photo_info',
+              year=year,
+              month=month,
+              day=day,
+              filename=filename) }}"
+           class="text-decoration-none">
+
+          <div class="card photo-card h-100">
+
+            <img
+              src="{{ url_for('show_photo',
+                    year=year,
+                    month=month,
+                    day=day,
+                    filename=filename) }}"
+              class="card-img-top"
+              alt="{{ filename }}"
+              loading="lazy"
+            >
+
+            <div class="card-body p-2">
+              <small class="text-muted text-truncate d-block">
+                {{ filename }}
+              </small>
+            </div>
+
+          </div>
+
+        </a>
+
+      </div>
+    {% endfor %}
+
+  </div>
+
+</div>
+
+<a href="{{ url_for('photo_by_date', date='%04d-%02d-%02d'|format(year, month, day) )}}" class="btn btn-secondary mb-3">
+  ← Back
+</a>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Search by Location{% endblock %}
+
+{% block content %}
+<style>
+    body {
+        height:100vh;
+        width:100vw;
+        margin:0px;
+    }
+    img {
+        height:100%;
+        width:100%;
+        object-fit:cover;
+        display:block;
+    }
+</style>
+
+<a href="{{ url_for('show_photo',
+      year=year,
+      month=month,
+      day=day,
+      filename=filename) }}" download>
+<img src="{{ url_for('show_photo',
+      year=year,
+      month=month,
+      day=day,
+      filename=filename) }}"></a>
+
+<p>
+    &nbsp;
+</p>
+
+{% if photo %}
+<!-- Info card -->
+<div class="card shadow-sm">
+    <div class="card-body">
+
+        <h5 class="card-title">
+            {{ photo.title }}
+        </h5>
+
+        <p class="text-muted mb-2">
+            📅 {{ photo.date_taken.strftime('%d %B %Y') }}
+        </p>
+
+        {% if photo.extra_info %}
+        <p class="card-text">
+            {{ photo.extra_info }}
+        </p>
+        {% endif %}
+
+        {% if photo.keywords %}
+        <hr>
+        <div>
+            {% for kw in photo.keywords %}
+            <span class="badge bg-secondary me-1 mb-1">
+                {{ kw }}
+              </span>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+{% endif %}
+
+<!-- Back button -->
+<div class="text-center mt-3">
+    <a
+            class="btn btn-outline-secondary"
+            href="{{ url_for('photos_by_date', year=year, month=month, day=day) }}"
+    >
+        ← Back to gallery
+    </a>
+</div>
+
+{% endblock %}

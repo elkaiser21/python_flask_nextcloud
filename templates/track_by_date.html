@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Search by date{% endblock %}
+
+{% block content %}
+
+<h2>Search tracks by date</h2>
+
+<form class="mb-4" method="get">
+    <div class="row g-2 align-items-end">
+
+        <!-- Date input -->
+        <div class="col-md-2 d-grid">
+            <label class="form-label" for="date">Select date</label>
+            <input
+                    class="form-control"
+                    id="date"
+                    name="date"
+                    type="date"
+                    value="{{ selected_date }}"
+            >
+        </div>
+
+        <!-- Submit -->
+        <div class="col-md-2 d-grid">
+            <button class="btn btn-primary" type="submit">
+                Search
+            </button>
+        </div>
+
+    </div>
+</form>
+
+{% if tracks %}
+<div class="table-responsive">
+    <table class="table table-striped table-bordered table-hover" id="trackTable">
+        <thead class="table-dark">
+        <tr>
+            <th>Date</th>
+            <th>Name</th>
+            <th>type</th>
+            <th>info</th>
+            <th>length (km)</th>
+            <th>lat</th>
+            <th>lon</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for track in tracks %}
+        <tr>
+            <td><a href="{{ url_for('photo_by_date', date=track.date_taken) }}" >{{ track.date_taken }}</a></td>
+            <td><a href="{{ url_for('download_track', year=track.date_taken.year, month=track.date_taken.month, day=track.date_taken.day,filename=track.name) }}">{{ track.name }}</a></td>
+            <td>{{ track.type }}</td>
+            <td>{{ track.extra_info }}</td>
+            <td class="text-end">{{ track.len }}</td>
+            <td class="text-end">{{ track.lat }}</td>
+            <td class="text-end">{{ track.lon }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% elif selected_date %}
+<div class="alert alert-warning">
+    No tracks found for {{ selected_date }}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function () {
+      $('#trackTable').DataTable();
+    });
+</script>
+{% endblock %}

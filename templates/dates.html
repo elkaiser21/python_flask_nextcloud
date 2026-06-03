@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Search Dates{% endblock %}
+
+{% block content %}
+
+<h2>Search Dates</h2>
+
+<form method="get">
+    <div class="row g-2 align-items-end">
+        <div class="col-md-8">
+            <input
+                    class="form-control"
+                    name="searchstring"
+                    placeholder="Enter searchstring can be part of date eg '2025-11' ..."
+                    required
+                    type="text"
+                    value="{{ searchstring }}"
+            />
+        </div>
+        <!-- Option toggle -->
+        <div class="col-md-3">
+            <label class="form-label d-block">What</label>
+            <div class="btn-group w-100" role="group">
+                <input class="btn-check" id="modePhoto" name="mode" type="radio" value="photo"  {% if mode == "photo" or mode == None%}checked{% endif %}>
+                <label class="btn btn-outline-primary" for="modePhoto">Photo</label>
+
+                <input class="btn-check" id="modeTrack" name="mode" type="radio" value="track" {% if mode == "track" %}checked{% endif %}>
+                <label class="btn btn-outline-primary" for="modeTrack">Track</label>
+            </div>
+        </div>
+
+        <div class="col-md-1 d-grid">
+            <button class="btn btn-success w-100" type="submit">Search</button>
+        </div>
+    </div>
+</form>
+
+<div>&nbsp;</div>
+
+{% if dates %}
+<div class="table-responsive">
+    <table class="table table-striped table-bordered table-hover" id="dateTable">
+        <thead class="table-dark">
+        <tr>
+            <th>Date</th>
+            <th>Count</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for date in dates %}
+        <tr>
+            <td><a href="{% if mode == "photo" or mode == None%} {{ url_for('photo_by_date', date=date.date_taken) }} {% endif %} {% if mode == "track" %} {{ url_for('track_by_date', date=date.date_taken) }} {% endif %}">{{ date.date_taken }}</a></td>
+            <td class="text-end">{{ date.amount }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% elif searchstring %}
+<p>No results found.</p>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function () {
+      $('#dateTable').DataTable();
+    });
+</script>
+{% endblock %}
+
+
+
+

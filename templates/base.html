@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}My App{% endblock %}</title>
+
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+
+    <!-- Bootstrap CSS -->
+    <link
+            href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+            rel="stylesheet"
+    >
+
+    <!-- DataTables Bootstrap 5 -->
+    <link href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+{% if session.get('user_id') %}
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="{{ url_for('index') }}">DB Search</a>
+
+        <button class="navbar-toggler" data-bs-target="#navbarNav" data-bs-toggle="collapse"
+                type="button">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('track_by_location') %}active{% endif %}"
+                       href="{{ url_for('track_by_location') }}">Track by location</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('track_by_keyword') %}active{% endif %}"
+                       href="{{ url_for('track_by_keyword') }}">Track by keyword</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('track_by_date') %}active{% endif %}"
+                       href="{{ url_for('track_by_date') }}">Track by date</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('photo_by_keyword') %}active{% endif %}"
+                       href="{{ url_for('photo_by_keyword') }}">Photo by keyword</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('photo_by_date') %}active{% endif %}"
+                       href="{{ url_for('photo_by_date') }}">Photo by date</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('keywordsearch') %}active{% endif %}"
+                       href="{{ url_for('keywordsearch') }}">Keywords</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('datesearch') %}active{% endif %}"
+                       href="{{ url_for('datesearch') }}">Dates</a>
+                </li>
+            </ul>
+
+            <span class="navbar-text me-3">
+        {{ session.username }}
+      </span>
+
+            <a class="btn btn-outline-light" href="{{ url_for('logout') }}">
+                Logout
+            </a>
+        </div>
+    </div>
+</nav>
+{% endif %}
+
+<div class="container mt-4">
+    {% block content %}{% endblock %}
+</div>
+
+<!-- Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Search by date{% endblock %}
+
+{% block content %}
+
+<h2>Search photos by date</h2>
+
+<form class="mb-4" method="get">
+    <div class="row g-2 align-items-end">
+
+        <!-- Date input -->
+        <div class="col-md-2 d-grid">
+            <label class="form-label" for="date">Select date</label>
+            <input
+                    class="form-control"
+                    id="date"
+                    name="date"
+                    type="date"
+                    value="{{ selected_date }}"
+            >
+        </div>
+
+        <!-- Submit -->
+        <div class="col-md-2 d-grid">
+            <button class="btn btn-primary" type="submit">
+                Search
+            </button>
+        </div>
+
+        <div class="col-md-1 d-grid">
+            <div class="form-check">
+                <input class="form-check-input" id="showphotos" name="showphotos" type="checkbox">
+                <label class="form-check-label" for="showphotos">
+                    show
+                </label>
+            </div>
+        </div>
+
+    </div>
+</form>
+
+{% if photos %}
+<div class="table-responsive">
+    <table class="table table-striped table-bordered table-hover" id="photoTable">
+        <thead class="table-dark">
+        <tr>
+            <th>Date</th>
+            <th>Name</th>
+            <th>Info</th>
+            <th>Title</th>
+            <th>Latitude</th>
+            <th>Longitude</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for photo in photos %}
+        <tr>
+            <td>
+                {% if tracks_exists %}
+                <a href="{{ url_for('track_by_date', date=photo.date_taken) }}">
+                    {{ photo.date_taken }}
+                </a>
+                {% else %}
+                {{ photo.date_taken }}
+                {% endif %}
+            </td>
+            <td>
+                <a href="{{ url_for('photo_info', year=photo.date_taken.year, month=photo.date_taken.month, day=photo.date_taken.day, filename=photo.name) }}">{{
+                    photo.name }}</a></td>
+            <td>{{ photo.extra_info }}</td>
+            <td>{{ photo.title }}</td>
+            <td class="text-end">{{ photo.lat }}</td>
+            <td class="text-end">{{ photo.lon }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% elif selected_date %}
+<div class="alert alert-warning">
+    No photos found for {{ selected_date }}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function () {
+      $('#photoTable').DataTable();
+    });
+</script>
+{% endblock %}

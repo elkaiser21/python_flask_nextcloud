@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+
+{% block title %}Heatmap{% endblock %}
+
+{% block content %}
+
+<div class="container-fluid">
+
+    <h2 class="mb-4">Heatmap</h2>
+    {% if result_rows < 1 %}
+        <div class="alert alert-warning">
+        No cells where selected. Change the filters to get a result.
+        </div>
+    {% endif %}
+    {% if limit_reached %}
+        <div class="alert alert-warning">
+        Only the first {{ filters.max_results }} cells are displayed.
+        Narrow the filters to see all results.
+        </div>
+    {% endif %}
+
+    <button aria-controls="filterPanel"
+            aria-expanded="false"
+            class="btn btn-outline-primary mb-4"
+            data-bs-target="#filterPanel"
+            data-bs-toggle="collapse"
+            type="button">
+        Filters
+    </button>
+
+    <div class="collapse" id="filterPanel">
+
+        <form method="POST" >
+
+            <div class="card mb-4">
+
+                <div class="card-header">
+                    <strong>Filters</strong>
+                </div>
+
+                <div class="card-body">
+
+                    <div class="row">
+
+                        <!-- Visits -->
+                        <div class="col-md-2">
+                            <label class="form-label">Min visits</label>
+                            <input
+                                    class="form-control"
+                                    name="min_visits"
+                                    type="number"
+                                    value="{{ filters.min_visits }}">
+                        </div>
+
+                        <div class="col-md-2">
+                            <label class="form-label">Max visits</label>
+                            <input
+                                    class="form-control"
+                                    name="max_visits"
+                                    type="number"
+                                    value="{{ filters.max_visits }}">
+                        </div>
+
+                        <!-- Distance -->
+                        <div class="col-md-2">
+                            <label class="form-label">Min km</label>
+                            <input
+                                    class="form-control"
+                                    name="min_km"
+                                    step="0.1"
+                                    type="number"
+                                    value="{{ filters.min_km }}">
+                        </div>
+
+                        <div class="col-md-2">
+                            <label class="form-label">Max km</label>
+                            <input
+                                    class="form-control"
+                                    name="max_km"
+                                    step="0.1"
+                                    type="number"
+                                    value="{{ filters.max_km }}">
+                        </div>
+
+                        <div class="col-md-2">
+                            <label class="form-label">Max results</label>
+                            <input
+                                    class="form-control"
+                                    name="max_results"
+                                    step="100"
+                                    type="number"
+                                    value="{{ filters.max_results }}">
+                        </div>
+
+                    </div>
+
+                    <hr>
+
+                    <div class="row">
+
+                        <!-- Dates -->
+                        <div class="col-md-3">
+                            <label class="form-label">From date</label>
+                            <input
+                                    class="form-control"
+                                    name="min_date"
+                                    type="date"
+                                    value="{{ filters.min_date }}">
+                        </div>
+
+                        <div class="col-md-3">
+                            <label class="form-label">To date</label>
+                            <input
+                                    class="form-control"
+                                    name="max_date"
+                                    type="date"
+                                    value="{{ filters.max_date }}">
+                        </div>
+
+                    </div>
+
+                    <hr>
+
+                                        <div class="row">
+
+                        <div class="col-md-6">
+                            <label class="form-label">Location</label>
+                            <input
+                            class="form-control"
+                            name="location"
+                            placeholder="Enter location (e.g. city, postal code, latlon) ..."
+                            type="text"
+                            value="{{ filters.location }}"
+                            />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Radius in km</label>
+                            <input
+                            class="form-control"
+                            name="km_radius"
+                            placeholder="km radius"
+                            type="number"
+                            value="{{ filters.km_radius }}"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="row">
+
+                        <!-- Latitude -->
+                        <div class="col-md-2">
+                            <label class="form-label">Min latitude</label>
+                            <input
+                                    class="form-control"
+                                    name="min_lat"
+                                    step="0.000001"
+                                    type="number"
+                                    value="{{ filters.min_lat }}">
+                        </div>
+
+                        <div class="col-md-2">
+                            <label class="form-label">Max latitude</label>
+                            <input
+                                    class="form-control"
+                                    name="max_lat"
+                                    step="0.000001"
+                                    type="number"
+                                    value="{{ filters.max_lat }}">
+                        </div>
+
+                        <!-- Longitude -->
+                        <div class="col-md-2">
+                            <label class="form-label">Min longitude</label>
+                            <input
+                                    class="form-control"
+                                    name="min_lon"
+                                    step="0.000001"
+                                    type="number"
+                                    value="{{ filters.min_lon }}">
+                        </div>
+
+                        <div class="col-md-2">
+                            <label class="form-label">Max longitude</label>
+                            <input
+                                    class="form-control"
+                                    name="max_lon"
+                                    step="0.000001"
+                                    type="number"
+                                    value="{{ filters.max_lon }}">
+                        </div>
+
+                    </div>
+
+
+                    <hr>
+
+                    <div class="row">
+
+                        <div class="col-md-4">
+
+                            {% for track_type in ["Car", "Cycle", "Walk"] %}
+                            <div class="form-check">
+                                <input
+                                    class="form-check-input"
+                                    type="checkbox"
+                                    name="track_type"
+                                    value="{{ track_type }}"
+                                    {% if track_type in filters.track_types %}checked{% endif %}>
+
+                                <label class="form-check-label">
+                                    {{ track_type }}
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="card-footer">
+
+                    <button
+                            class="btn btn-primary"
+                            type="submit"
+                            name="action"
+                            value="show">
+                        Show Heatmap
+                    </button>
+
+                    <a
+                            class="btn btn-secondary"
+                            href="{{ url_for('heatmap') }}">
+                        Reset Filters
+                    </a>
+
+                    <button
+                        class="btn btn-warning"
+                        type="submit"
+                        name="action"
+                        value="clear_values">
+                        Clear Values
+                    </button>
+
+                </div>
+
+            </div>
+
+        </form>
+    </div>
+
+    {% if map_available %}
+    <iframe
+            height="750"
+            src="{{ url_for('static', filename='maps/heatmap.html') }}"
+            style="border:none"
+            width="100%">
+    </iframe>
+    {% endif %}
+
+</div>
+
+{% endblock %}

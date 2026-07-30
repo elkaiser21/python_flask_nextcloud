@@ -1,22 +1,26 @@
 import logging
 import math
 import os
+
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from urllib.parse import unquote
 
-import mysql.connector
-import requests
-from flask import Flask, render_template, request, redirect, url_for, session, send_from_directory, abort, Response
-from geopy.exc import (
-  GeocoderTimedOut,
-  GeocoderServiceError,
-  GeocoderUnavailable,
-  GeocoderQuotaExceeded
-)
-from geopy.geocoders import Nominatim
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
+
+import mysql.connector
+import requests
+
+import folium
+import h3
+from branca.colormap import linear
+
+from flask import Flask, render_template, request, redirect, url_for, session, send_from_directory, abort, Response
+
+import utils
+import geo_utils
+import classes
 
 logging.basicConfig(level = logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,11 +38,9 @@ NEXTCLOUD_PHOTO_DIR = os.environ.get("NEXTCLOUD_PHOTO_SYNC_DIR")
 NEXTCLOUD_PHOTO_ARCHIVE_DIR = os.environ.get("NEXTCLOUD_PHOTO_ARCHIVE_DIR")
 NEXTCLOUD_TRACK_DIR = os.environ.get("NEXTCLOUD_TRACK_SYNC_DIR")
 
-
 @app.context_processor
 def inject_path():
   return {"current_path": request.path}
-
 
 app.config.update(
   SESSION_COOKIE_SECURE = True,
@@ -52,7 +54,6 @@ db_config = {
   "password": os.environ.get("DB_PASSWORD"),
   "database": os.environ.get("DB_NAME")
 }
-
 
 def get_user(username):
   conn = mysql.connector.connect(**db_config)
@@ -68,7 +69,6 @@ def get_user(username):
   conn.close()
   return user
 
-
 def login_required(view):
   from functools import wraps
 
@@ -81,53 +81,15 @@ def login_required(view):
   return wrapped
 
 
-def bounding_box(lat, lon, radius_km):
-  lat_delta = radius_km / 111
-  lon_delta = radius_km / (111 * math.cos(math.radians(lat)))
-
-  return (
-    lat - lat_delta,
-    lat + lat_delta,
-    lon - lon_delta,
-    lon + lon_delta
-  )
-
-
-def geocode_location(location_str):
-  """
-  A string indicating a location like a city name is converted into
-  latitude, longitude and a message
-  """
-  message = None
-  location = None
-  geolocator = Nominatim(user_agent = "geo_search_app", timeout = 10)
-  try:
-    location = geolocator.geocode(location_str)
-  except GeocoderTimedOut:
-    message = "Geocoding service timed out"
-  except GeocoderQuotaExceeded:
-    message = "Geocoding quota exceeded / rate limited"
-  except GeocoderUnavailable:
-    message = "Geocoding service unavailable"
-  except GeocoderServiceError as e:
-    message = f"Geocoding service error: {e}"
-  if location is None:
-    message = f"Location not found: '{location_str}'"
-
-  if message:
-    return 0, 0, message
-  return location.latitude, location.longitude, message
-
-
 def get_tracks_by_latlon(location, radius):
   """
   A location string and a radius in km is selecting all the tracks within that area.
   For the selection of tracks the middle lat-lon is used
   """
-  center_lat, center_lon, message = geocode_location(location)
+  center_lat, center_lon, message = geo_utils.geocode_location(location)
   if message:
     return [], message
-  min_lat, max_lat, min_lon, max_lon = bounding_box(center_lat, center_lon, radius)
+  min_lat, max_lat, min_lon, max_lon = geo_utils.bounding_box(center_lat, center_lon, radius)
 
   conn = mysql.connector.connect(**db_config)
   cursor = conn.cursor(dictionary = True)
@@ -514,7 +476,10 @@ def photo_by_date():
     row = check_if_track_exists(selected_date)[0]
     tracks_exists = bool(row["count"]) if row else False
 
-  return render_template("photo_by_date.html", photos = photos, selected_date = date_str, showphotos = showphotos,
+  return render_template("photo_by_date.html",
+                         photos = photos,
+                         selected_date = date_str,
+                         showphotos = showphotos,
                          tracks_exists = tracks_exists)
 
 
@@ -532,7 +497,10 @@ def track_by_location():
     if location:
       tracks, message = get_tracks_by_latlon(location, int(kmradius))
 
-  return render_template("track_by_location.html", tracks = tracks, location = location, kmradius = kmradius,
+  return render_template("track_by_location.html",
+                         tracks = tracks,
+                         location = location,
+                         kmradius = kmradius,
                          message = message)
 
 
@@ -719,6 +687,188 @@ def photo_info(year, month, day, filename):
   )
 
 
+def get_tracks(cursor, cell_id, where_clause, params):
+  result = ""
+  sql = f"""
+    SELECT
+      t.date_taken,
+      t.name, 
+      t.type
+    FROM track_h3 h
+    JOIN track t
+    ON h.track_name=t.name
+    {where_clause} 
+    AND h.cell_id = '{cell_id}'
+    """
+  # logger.info(f"sql get tracks: {sql}")
+  # logger.info(f"params get tracks: {params}")
+
+  cursor.execute(sql, params)
+  rows = cursor.fetchall()
+  for row in rows:
+    result += f"<li><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"/track_by_date?date={row['date_taken']}\">{row['date_taken']} - {row['name']} - {row['type']}</a></li>"
+  return result
+
+
+@app.route("/heatmap", methods=["GET", "POST"])
+@login_required
+def heatmap():
+  filters = classes.HeatmapFilters()
+  classes.get_bounding_box_for_location(filters)
+  is_mobile = request.user_agent.platform in ["android", "iphone"] or \
+              "Mobile" in request.user_agent.string
+
+  if request.method == "POST":
+    action = request.form.get("action")
+
+    if action == "clear_values":
+      filters.clear_values()
+
+      return render_template(
+        "heatmap.html",
+        filters = filters,
+        limit_reached = False,
+        result_rows = 1,
+        map_available = False
+      )
+
+    filters.read_from_form(request.form)
+
+  conn = mysql.connector.connect(**db_config)
+  cursor = conn.cursor(dictionary = True)
+
+  basic_params = []
+  visit_params = []
+  where_clause = "WHERE 1=1 "
+  having_clause = "HAVING visits >= %s"
+
+  if filters.min_date:
+    basic_params.append(filters.min_date)
+    where_clause += f" AND t.date_taken >= %s"
+  if filters.max_date:
+    basic_params.append(filters.max_date)
+    where_clause += f" AND t.date_taken <= %s"
+  if filters.min_km is not None:
+    basic_params.append(int(filters.min_km * 1000))
+    where_clause += f" AND t.length >= %s"
+  if filters.max_km is not None:
+    basic_params.append(int(filters.max_km * 1000))
+    where_clause += f" AND t.length <= %s"
+  if filters.min_lat is not None:
+    basic_params.append(filters.min_lat)
+    where_clause += f" AND t.middle_lat >= %s"
+  if filters.max_lat is not None:
+    basic_params.append(filters.max_lat)
+    where_clause += f" AND t.middle_lat <= %s"
+
+  if filters.min_lon is not None:
+    basic_params.append(filters.min_lon)
+    where_clause += f" AND t.middle_lon >= %s"
+  if filters.max_lon is not None:
+    basic_params.append(filters.max_lon)
+    where_clause += f" AND t.middle_lon <= %s"
+
+  if filters.track_types:
+    basic_params.extend(filters.track_types)
+    placeholders = ",".join(["%s"] * len(filters.track_types))
+    where_clause += f" AND t.type IN ({placeholders})"
+
+  # there should always be min visits
+  if filters.min_visits is None:
+    filters.min_visits = 1
+  visit_params.append(filters.min_visits)
+
+  if filters.max_visits is not None:
+    visit_params.append(filters.max_visits)
+    having_clause += " AND visits <= %s"
+
+  sql = f"""
+    SELECT
+    h.cell_id,
+    t.type,
+    t.name,
+    t.date_taken,
+    COUNT(*) AS visits
+
+    FROM track_h3 h
+
+    JOIN track t
+    ON h.track_name=t.name
+    
+    {where_clause}
+
+    GROUP BY h.cell_id
+    {having_clause}
+    LIMIT {filters.max_results + 1}
+    """
+  # logger.info(f"sql: {sql}")
+  # logger.info(f"params: {basic_params + visit_params}")
+
+  cursor.execute(sql, basic_params + visit_params)
+  rows = cursor.fetchall()
+
+  result_rows = len(rows)
+  limit_reached = result_rows > filters.max_results
+  if limit_reached:
+    rows = rows[:filters.max_results]
+
+  all_points = []
+
+  m = folium.Map(
+    tiles = "OpenStreetMap"
+  )
+
+  if rows:
+
+    colormap = linear.Set1_09.to_step(9).scale(1, 10)
+
+    for row in rows:
+      cell_id = row["cell_id"]
+      visits = row["visits"]
+
+      boundary = h3.cell_to_boundary(cell_id)
+      all_points.extend(boundary)
+      color = colormap(visits)
+
+      popup_text = get_tracks(cursor, cell_id, where_clause, basic_params)
+      popup = folium.Popup(
+        popup_text,
+        max_width=300
+      )
+
+      polygon = folium.Polygon(
+        locations = boundary,
+        color = color,
+        fill = True,
+        fill_color = color,
+        fill_opacity = 0.6,
+        weight = 0,
+        popup = popup
+        )
+
+      if not is_mobile:
+        polygon.add_child(
+          folium.Tooltip(f"{visits} visits<br /> <ul>{get_tracks(cursor, cell_id, where_clause, basic_params)}</ul>")
+        )
+
+      polygon.add_to(m)
+
+    colormap.caption = "Number of visits"
+    colormap.add_to(m)
+    m.fit_bounds(all_points)
+  m.save("static/maps/heatmap.html")
+
+  cursor.close()
+  conn.close()
+
+  return render_template(
+    "heatmap.html",
+    map_available = True,
+    filters=filters,
+    limit_reached = limit_reached,
+    result_rows = result_rows
+  )
+
 def get_show_photo_request(url: str) -> Response:
   r = requests.get(
     url,
@@ -726,7 +876,6 @@ def get_show_photo_request(url: str) -> Response:
     stream = True,
   )
   return r
-
 
 def get_photo_info_request(url: str) -> Response:
   r = requests.get(

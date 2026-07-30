@@ -59,6 +59,10 @@
                     <a class="nav-link {% if current_path == url_for('datesearch') %}active{% endif %}"
                        href="{{ url_for('datesearch') }}">Dates</a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('datesearch') %}active{% endif %}"
+                       href="{{ url_for('heatmap') }}">Heatmap</a>
+                </li>
             </ul>
 
             <span class="navbar-text me-3">

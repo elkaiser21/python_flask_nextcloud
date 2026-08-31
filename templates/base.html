@@ -12,6 +12,9 @@
             rel="stylesheet"
     >
 
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+
     <!-- DataTables Bootstrap 5 -->
     <link href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css" rel="stylesheet">
 
@@ -32,17 +35,21 @@
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav me-auto">
                 <li class="nav-item">
+                    <a class="nav-link {% if current_path == url_for('show_tracks') %}active{% endif %}"
+                       href="{{ url_for('show_tracks') }}">Tracks on Map</a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link {% if current_path == url_for('track_by_location') %}active{% endif %}"
                        href="{{ url_for('track_by_location') }}">Track by location</a>
                 </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if current_path == url_for('track_by_keyword') %}active{% endif %}"
-                       href="{{ url_for('track_by_keyword') }}">Track by keyword</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if current_path == url_for('track_by_date') %}active{% endif %}"
-                       href="{{ url_for('track_by_date') }}">Track by date</a>
-                </li>
+<!--                <li class="nav-item">-->
+<!--                    <a class="nav-link {% if current_path == url_for('track_by_keyword') %}active{% endif %}"-->
+<!--                       href="{{ url_for('track_by_keyword') }}">Track by keyword</a>-->
+<!--                </li>-->
+<!--                <li class="nav-item">-->
+<!--                    <a class="nav-link {% if current_path == url_for('track_by_date') %}active{% endif %}"-->
+<!--                       href="{{ url_for('track_by_date') }}">Track by date</a>-->
+<!--                </li>-->
                 <li class="nav-item">
                     <a class="nav-link {% if current_path == url_for('photo_by_keyword') %}active{% endif %}"
                        href="{{ url_for('photo_by_keyword') }}">Photo by keyword</a>

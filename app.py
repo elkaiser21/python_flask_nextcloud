@@ -197,6 +197,75 @@ def get_tracks_by_date(selected_date):
   return results
 
 
+def get_tracks_by_date_range(start_date, end_date):
+  """
+  Select all tracks between start_date and end_date (inclusive).
+  start_date and end_date should be strings in YYYY-MM-DD format or date objects.
+  """
+  conn = mysql.connector.connect(**db_config)
+  cursor = conn.cursor(dictionary = True)
+
+  sql = """
+        SELECT
+            name,
+            date_taken,
+            extra_info,
+            type,
+            ROUND(length/1000, 2) as len,
+            ROUND(middle_lat, 6) as lat,
+            ROUND(middle_lon, 6) as lon
+        FROM track
+        WHERE DATE(date_taken) BETWEEN %s AND %s
+        ORDER BY date_taken DESC
+      """
+
+  cursor.execute(sql, (f"{start_date}", f"{end_date}"))
+  results = cursor.fetchall()
+  cursor.close()
+  conn.close()
+
+  return results
+
+
+def get_gpx_points(year, month, day, filename):
+  """
+  Downloads the GPX file from Nextcloud for the given date and filename and
+  returns a list of (lat, lon) tuples extracted from trkpt elements.
+  """
+  try:
+    url = get_nextcloud_url(NEXTCLOUD_TRACK_DIR, year, month, day, filename)
+    r = requests.get(url, auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD))
+    if r.status_code != 200:
+      return []
+
+    data = r.content
+    root = ET.fromstring(data)
+    ns = {}
+    if root.tag.startswith("{"):
+      ns_uri = root.tag.split("}")[0].strip("{")
+      ns = {"gpx": ns_uri}
+
+    points = []
+    # Try namespaced trkpt first
+    if ns:
+      for trkpt in root.findall('.//gpx:trkpt', ns):
+        lat = trkpt.attrib.get('lat')
+        lon = trkpt.attrib.get('lon')
+        if lat and lon:
+          points.append((float(lat), float(lon)))
+    else:
+      for trkpt in root.findall('.//trkpt'):
+        lat = trkpt.attrib.get('lat')
+        lon = trkpt.attrib.get('lon')
+        if lat and lon:
+          points.append((float(lat), float(lon)))
+
+    return points
+  except Exception as e:
+    logger.exception('Error extracting GPX points for %s/%s/%s %s: %s', year, month, day, filename, e)
+    return []
+
+
 def get_photos_by_keywords(keywords):
   """
   Select all photos with the given (part of) keyword.
@@ -438,6 +507,96 @@ def track_by_keyword():
   return render_template("track_by_keyword.html", tracks = tracks, keyword = keyword_str)
 
 
+@app.route('/show_tracks', methods=['GET', 'POST'])
+@login_required
+def show_tracks():
+  """
+  Shows tracks filtered by start_date, end_date, keyword. Allows selecting tracks to display on a map.
+  """
+  tracks = []
+  start_date = request.values.get('start_date', '').strip()
+  end_date = request.values.get('end_date', '').strip()
+  keyword_str = request.values.get('keyword', '').strip()
+
+  if request.method == 'GET':
+    # Populate the track list based on filters
+    if keyword_str:
+      keywords = [k.strip() for k in keyword_str.split(',') if k.strip()]
+      tracks = get_tracks_by_keyword(keywords)
+      # Optionally filter by date range if provided
+      if start_date or end_date:
+        sd = start_date or '0001-01-01'
+        ed = end_date or '9999-12-31'
+        filtered = []
+        for t in tracks:
+          td = t['date_taken']
+          # td may be date/datetime or string
+          try:
+            td_date = td.date() if hasattr(td, 'date') else datetime.strptime(str(td), '%Y-%m-%d').date()
+          except Exception:
+            td_date = None
+          if td_date:
+            if sd <= str(td_date) <= ed:
+              filtered.append(t)
+        tracks = filtered
+    elif start_date or end_date:
+      sd = start_date or end_date
+      ed = end_date or start_date
+      tracks = get_tracks_by_date_range(sd, ed)
+
+    selected = request.values.getlist('selected') if request.values else []
+    return render_template('show_tracks.html', tracks=tracks, start_date=start_date, end_date=end_date, keyword=keyword_str, map_available=False, selected=selected)
+
+  # POST - generate map for selected tracks
+  selected = request.form.getlist('selected')
+  if not selected:
+    return render_template('show_tracks.html', tracks=[], start_date=start_date, end_date=end_date, keyword=keyword_str, map_available=False, message='No tracks selected')
+
+  # strong/vivid colors for better contrast on the map
+  colors = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#46f0f0','#f032e6','#ffe119','#008080','#000000']
+  m = folium.Map(tiles='OpenStreetMap')
+  all_points = []
+
+  for idx, val in enumerate(selected):
+    # expected format: date::filename
+    try:
+      date_part, filename = val.split('::', 1)
+      # parse date to year/month/day
+      dt = datetime.fromisoformat(date_part)
+      year = dt.year
+      month = dt.month
+      day = dt.day
+    except Exception:
+      # fallback: try splitting by space if any
+      parts = val.split('::')
+      if len(parts) >= 2:
+        date_part = parts[0]
+        filename = parts[1]
+        dt = datetime.fromisoformat(date_part)
+        year = dt.year; month = dt.month; day = dt.day
+      else:
+        continue
+
+    points = get_gpx_points(year, month, day, filename)
+    if not points:
+      continue
+
+    all_points.extend(points)
+    color = colors[idx % len(colors)]
+    folium.PolyLine(locations=[(lat, lon) for lat, lon in points], color=color, weight=4, opacity=0.8, tooltip=filename).add_to(m)
+
+  if all_points:
+    m.fit_bounds(all_points)
+
+  # ensure maps dir exists and save
+  maps_dir = os.path.join('static', 'maps')
+  os.makedirs(maps_dir, exist_ok=True)
+  map_path = os.path.join(maps_dir, 'show_tracks.html')
+  m.save(map_path)
+
+  return render_template('show_tracks.html', tracks=[], start_date=start_date, end_date=end_date, keyword=keyword_str, map_available=True, map_url='/' + map_path, selected=selected)
+
+
 @app.route("/photo_by_keyword", methods = ["GET", "POST"])
 @login_required
 def photo_by_keyword():
@@ -537,8 +696,7 @@ def download_track(year, month, day, filename):
   r = requests.get(
     url,
     auth = (NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
-    stream = True,
-    verify = False  # self-signed cert (LAN)
+    stream = True
   )
 
   if r.status_code != 200:

@@ -260,4 +260,13 @@
 
 </div>
 
+<script>
+  document.querySelector("form").addEventListener("submit", function () {
+
+    const button = document.querySelector("button[value='show']");
+
+    button.disabled = true;
+    button.innerText = "Building...";
+});
+</script>
 {% endblock %}

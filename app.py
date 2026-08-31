@@ -16,18 +16,28 @@ import folium
 import h3
 from branca.colormap import linear
 
-from flask import Flask, render_template, request, redirect, url_for, session, send_from_directory, abort, Response
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    session,
+    send_from_directory,
+    abort,
+    Response,
+)
 
 import utils
 import geo_utils
 import classes
 
-logging.basicConfig(level = logging.INFO)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-this")
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto = 1, x_host = 1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 GPX_DIR = "/home/w7667388/trackfiles"
 
@@ -38,62 +48,65 @@ NEXTCLOUD_PHOTO_DIR = os.environ.get("NEXTCLOUD_PHOTO_SYNC_DIR")
 NEXTCLOUD_PHOTO_ARCHIVE_DIR = os.environ.get("NEXTCLOUD_PHOTO_ARCHIVE_DIR")
 NEXTCLOUD_TRACK_DIR = os.environ.get("NEXTCLOUD_TRACK_SYNC_DIR")
 
+
 @app.context_processor
 def inject_path():
-  return {"current_path": request.path}
+    return {"current_path": request.path}
+
 
 app.config.update(
-  SESSION_COOKIE_SECURE = True,
-  SESSION_COOKIE_HTTPONLY = True,
-  SESSION_COOKIE_SAMESITE = "Lax",
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
 )
 
 db_config = {
-  "host": "localhost",
-  "user": os.environ.get("DB_USER"),
-  "password": os.environ.get("DB_PASSWORD"),
-  "database": os.environ.get("DB_NAME")
+    "host": "localhost",
+    "user": os.environ.get("DB_USER"),
+    "password": os.environ.get("DB_PASSWORD"),
+    "database": os.environ.get("DB_NAME"),
 }
 
+
 def get_user(username):
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
 
-  cursor.execute(
-    "SELECT * FROM users WHERE username = %s",
-    (username,)
-  )
-  user = cursor.fetchone()
+    cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+    user = cursor.fetchone()
 
-  cursor.close()
-  conn.close()
-  return user
+    cursor.close()
+    conn.close()
+    return user
+
 
 def login_required(view):
-  from functools import wraps
+    from functools import wraps
 
-  @wraps(view)
-  def wrapped(*args, **kwargs):
-    if "user_id" not in session:
-      return redirect(url_for("login"))
-    return view(*args, **kwargs)
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        return view(*args, **kwargs)
 
-  return wrapped
+    return wrapped
 
 
 def get_tracks_by_latlon(location, radius):
-  """
-  A location string and a radius in km is selecting all the tracks within that area.
-  For the selection of tracks the middle lat-lon is used
-  """
-  center_lat, center_lon, message = geo_utils.geocode_location(location)
-  if message:
-    return [], message
-  min_lat, max_lat, min_lon, max_lon = geo_utils.bounding_box(center_lat, center_lon, radius)
+    """
+    A location string and a radius in km is selecting all the tracks within that area.
+    For the selection of tracks the middle lat-lon is used
+    """
+    center_lat, center_lon, message = geo_utils.geocode_location(location)
+    if message:
+        return [], message
+    min_lat, max_lat, min_lon, max_lon = geo_utils.bounding_box(
+        center_lat, center_lon, radius
+    )
 
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
-  query = """
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    query = """
     SELECT
             t.name,
             t.date_taken,
@@ -119,30 +132,34 @@ def get_tracks_by_latlon(location, radius):
     ORDER BY distance;
     """
 
-  params = (
-    center_lat, center_lon, center_lat,
-    min_lat, max_lat,
-    min_lon, max_lon,
-    radius
-  )
+    params = (
+        center_lat,
+        center_lon,
+        center_lat,
+        min_lat,
+        max_lat,
+        min_lon,
+        max_lon,
+        radius,
+    )
 
-  cursor.execute(query, params)
-  results = cursor.fetchall()
+    cursor.execute(query, params)
+    results = cursor.fetchall()
 
-  cursor.close()
-  conn.close()
+    cursor.close()
+    conn.close()
 
-  return results, message
+    return results, message
 
 
 def get_tracks_by_keyword(keywords):
-  """
-  Select all tracks with the given (part of) keyword.
-  """
-  placeholders = ",".join(["%s"] * len(keywords))
-  params = keywords + [len(keywords)]
+    """
+    Select all tracks with the given (part of) keyword.
+    """
+    placeholders = ",".join(["%s"] * len(keywords))
+    params = keywords + [len(keywords)]
 
-  sql = f"""
+    sql = f"""
         SELECT DISTINCT
             name,
             date_taken,
@@ -158,25 +175,25 @@ def get_tracks_by_keyword(keywords):
         ORDER BY date_taken DESC
     """
 
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
-  cursor.execute(sql, params)
-  results = cursor.fetchall()
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(sql, params)
+    results = cursor.fetchall()
 
-  cursor.close()
-  conn.close()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
 def get_tracks_by_date(selected_date):
-  """
-  Select all tracks with the given date.
-  """
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
+    """
+    Select all tracks with the given date.
+    """
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
 
-  sql = """
+    sql = """
         SELECT
             name,
             date_taken,
@@ -189,23 +206,23 @@ def get_tracks_by_date(selected_date):
         WHERE DATE(date_taken) = %s
       """
 
-  cursor.execute(sql, (selected_date,))
-  results = cursor.fetchall()
-  cursor.close()
-  conn.close()
+    cursor.execute(sql, (selected_date,))
+    results = cursor.fetchall()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
 def get_tracks_by_date_range(start_date, end_date):
-  """
-  Select all tracks between start_date and end_date (inclusive).
-  start_date and end_date should be strings in YYYY-MM-DD format or date objects.
-  """
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
+    """
+    Select all tracks between start_date and end_date (inclusive).
+    start_date and end_date should be strings in YYYY-MM-DD format or date objects.
+    """
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
 
-  sql = """
+    sql = """
         SELECT
             name,
             date_taken,
@@ -219,63 +236,70 @@ def get_tracks_by_date_range(start_date, end_date):
         ORDER BY date_taken DESC
       """
 
-  cursor.execute(sql, (f"{start_date}", f"{end_date}"))
-  results = cursor.fetchall()
-  cursor.close()
-  conn.close()
+    cursor.execute(sql, (f"{start_date}", f"{end_date}"))
+    results = cursor.fetchall()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
 def get_gpx_points(year, month, day, filename):
-  """
-  Downloads the GPX file from Nextcloud for the given date and filename and
-  returns a list of (lat, lon) tuples extracted from trkpt elements.
-  """
-  try:
-    url = get_nextcloud_url(NEXTCLOUD_TRACK_DIR, year, month, day, filename)
-    r = requests.get(url, auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD))
-    if r.status_code != 200:
-      return []
+    """
+    Downloads the GPX file from Nextcloud for the given date and filename and
+    returns a list of (lat, lon) tuples extracted from trkpt elements.
+    """
+    try:
+        url = get_nextcloud_url(NEXTCLOUD_TRACK_DIR, year, month, day, filename)
+        r = requests.get(url, auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD))
+        if r.status_code != 200:
+            return []
 
-    data = r.content
-    root = ET.fromstring(data)
-    ns = {}
-    if root.tag.startswith("{"):
-      ns_uri = root.tag.split("}")[0].strip("{")
-      ns = {"gpx": ns_uri}
+        data = r.content
+        root = ET.fromstring(data)
+        ns = {}
+        if root.tag.startswith("{"):
+            ns_uri = root.tag.split("}")[0].strip("{")
+            ns = {"gpx": ns_uri}
 
-    points = []
-    # Try namespaced trkpt first
-    if ns:
-      for trkpt in root.findall('.//gpx:trkpt', ns):
-        lat = trkpt.attrib.get('lat')
-        lon = trkpt.attrib.get('lon')
-        if lat and lon:
-          points.append((float(lat), float(lon)))
-    else:
-      for trkpt in root.findall('.//trkpt'):
-        lat = trkpt.attrib.get('lat')
-        lon = trkpt.attrib.get('lon')
-        if lat and lon:
-          points.append((float(lat), float(lon)))
+        points = []
+        # Try namespaced trkpt first
+        if ns:
+            for trkpt in root.findall(".//gpx:trkpt", ns):
+                lat = trkpt.attrib.get("lat")
+                lon = trkpt.attrib.get("lon")
+                if lat and lon:
+                    points.append((float(lat), float(lon)))
+        else:
+            for trkpt in root.findall(".//trkpt"):
+                lat = trkpt.attrib.get("lat")
+                lon = trkpt.attrib.get("lon")
+                if lat and lon:
+                    points.append((float(lat), float(lon)))
 
-    return points
-  except Exception as e:
-    logger.exception('Error extracting GPX points for %s/%s/%s %s: %s', year, month, day, filename, e)
-    return []
+        return points
+    except Exception as e:
+        logger.exception(
+            "Error extracting GPX points for %s/%s/%s %s: %s",
+            year,
+            month,
+            day,
+            filename,
+            e,
+        )
+        return []
 
 
 def get_photos_by_keywords(keywords):
-  """
-  Select all photos with the given (part of) keyword.
-  """
-  placeholders = ",".join(["%s"] * len(keywords))
-  params = keywords + [len(keywords)]
-  # logger.info("placeholders: %r", placeholders)
-  # logger.info("params: %r", params)
+    """
+    Select all photos with the given (part of) keyword.
+    """
+    placeholders = ",".join(["%s"] * len(keywords))
+    params = keywords + [len(keywords)]
+    # logger.info("placeholders: %r", placeholders)
+    # logger.info("params: %r", params)
 
-  sql = f"""
+    sql = f"""
         SELECT DISTINCT
             name,
             date,
@@ -290,22 +314,22 @@ def get_photos_by_keywords(keywords):
         ORDER BY date DESC
     """
 
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
-  cursor.execute(sql, params)
-  results = cursor.fetchall()
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(sql, params)
+    results = cursor.fetchall()
 
-  cursor.close()
-  conn.close()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
 def get_photo_info(filename, date_taken):
-  """
-  Get photo information
-  """
-  sql = """
+    """
+    Get photo information
+    """
+    sql = """
         SELECT
           f.id,
           f.date_taken,
@@ -325,28 +349,28 @@ def get_photo_info(filename, date_taken):
           f.filename;
         """
 
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
-  cursor.execute(sql, (f"{filename}", f"{date_taken}"))
-  results = cursor.fetchall()
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(sql, (f"{filename}", f"{date_taken}"))
+    results = cursor.fetchall()
 
-  cursor.close()
-  conn.close()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
 def get_keywords_by_searchstring(searchstring, mode):
-  """
-  Select all keywords with the given (part of) keyword.
-  Depending on the choosen mode it with be the keywords of tracks or photos
-  """
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
-  sql = ""
+    """
+    Select all keywords with the given (part of) keyword.
+    Depending on the choosen mode it with be the keywords of tracks or photos
+    """
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    sql = ""
 
-  if mode == "photo":
-    sql = """
+    if mode == "photo":
+        sql = """
          SELECT
             keyword,
             COUNT(*) as amount
@@ -355,8 +379,8 @@ def get_keywords_by_searchstring(searchstring, mode):
           GROUP BY keyword
           ORDER BY amount DESC
       """
-  elif mode == "track":
-    sql = """
+    elif mode == "track":
+        sql = """
          SELECT
             keyword,
             COUNT(*) as amount
@@ -366,26 +390,26 @@ def get_keywords_by_searchstring(searchstring, mode):
           ORDER BY amount DESC
       """
 
-  cursor.execute(sql, (f"%{searchstring}%",))
-  results = cursor.fetchall()
+    cursor.execute(sql, (f"%{searchstring}%",))
+    results = cursor.fetchall()
 
-  cursor.close()
-  conn.close()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
 def get_dates_by_searchstring(searchstring, mode):
-  """
-  Select all dates with the given (part of) datestring.
-  Depending on the choosen mode it with be the dates of tracks or photos
-  """
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
-  sql = ""
+    """
+    Select all dates with the given (part of) datestring.
+    Depending on the choosen mode it with be the dates of tracks or photos
+    """
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    sql = ""
 
-  if mode == "photo":
-    sql = """
+    if mode == "photo":
+        sql = """
          SELECT
             date_taken,
             COUNT(*) as amount
@@ -394,8 +418,8 @@ def get_dates_by_searchstring(searchstring, mode):
           GROUP BY date_taken
           ORDER BY date_taken DESC
       """
-  elif mode == "track":
-    sql = """
+    elif mode == "track":
+        sql = """
          SELECT
             date_taken,
             COUNT(*) as amount
@@ -405,23 +429,23 @@ def get_dates_by_searchstring(searchstring, mode):
           ORDER BY date_taken DESC
       """
 
-  cursor.execute(sql, (f"%{searchstring}%",))
-  results = cursor.fetchall()
+    cursor.execute(sql, (f"%{searchstring}%",))
+    results = cursor.fetchall()
 
-  cursor.close()
-  conn.close()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
 def get_photos_by_date(selected_date):
-  """
-  Select all photos with the given date.
-  """
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
+    """
+    Select all photos with the given date.
+    """
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
 
-  sql = """
+    sql = """
         SELECT
             filename as name,
             date_taken,
@@ -433,421 +457,463 @@ def get_photos_by_date(selected_date):
         WHERE DATE(date_taken) = %s
     """
 
-  cursor.execute(sql, (selected_date,))
-  results = cursor.fetchall()
-  cursor.close()
-  conn.close()
+    cursor.execute(sql, (selected_date,))
+    results = cursor.fetchall()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
 def check_if_track_exists(selected_date):
-  """
-  See if there is a track for the given date
-  """
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
+    """
+    See if there is a track for the given date
+    """
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
 
-  sql = """
+    sql = """
         SELECT count(*) as count
         FROM track
         WHERE DATE(date_taken) = %s
     """
-  cursor.execute(sql, (selected_date,))
-  results = cursor.fetchall()
-  cursor.close()
-  conn.close()
+    cursor.execute(sql, (selected_date,))
+    results = cursor.fetchall()
+    cursor.close()
+    conn.close()
 
-  return results
+    return results
 
 
-@app.route("/login", methods = ["GET", "POST"])
+@app.route("/login", methods=["GET", "POST"])
 def login():
-  error = None
+    error = None
 
-  if request.method == "POST":
-    username = request.form["username"]
-    password = request.form["password"]
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
 
-    user = get_user(username)
+        user = get_user(username)
 
-    if user and check_password_hash(user["password_hash"], password):
-      session["user_id"] = user["id"]
-      session["username"] = user["username"]
-      return redirect(url_for("index"))
+        if user and check_password_hash(user["password_hash"], password):
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            return redirect(url_for("index"))
 
-    error = "Invalid username or password"
+        error = "Invalid username or password"
 
-  return render_template("login.html", error = error)
+    return render_template("login.html", error=error)
 
 
 @app.route("/logout")
 def logout():
-  session.clear()
-  return redirect(url_for("login"))
+    session.clear()
+    return redirect(url_for("login"))
 
 
 @app.route("/")
 @login_required
 def index():
-  return render_template("home.html")
+    return render_template("home.html")
 
 
-@app.route("/track_by_keyword", methods = ["GET", "POST"])
+@app.route("/track_by_keyword", methods=["GET", "POST"])
 @login_required
 def track_by_keyword():
-  tracks = []
-  keyword_str = request.args.get("keyword", "").strip()
+    tracks = []
+    keyword_str = request.args.get("keyword", "").strip()
 
-  if keyword_str:
-    """keywords can be split by comma"""
-    keywords = [keyword.strip() for keyword in keyword_str.split(",")]
-    tracks = get_tracks_by_keyword(keywords)
+    if keyword_str:
+        """keywords can be split by comma"""
+        keywords = [keyword.strip() for keyword in keyword_str.split(",")]
+        tracks = get_tracks_by_keyword(keywords)
 
-  return render_template("track_by_keyword.html", tracks = tracks, keyword = keyword_str)
+    return render_template("track_by_keyword.html", tracks=tracks, keyword=keyword_str)
 
 
-@app.route('/show_tracks', methods=['GET', 'POST'])
+@app.route("/show_tracks", methods=["GET", "POST"])
 @login_required
 def show_tracks():
-  """
-  Shows tracks filtered by start_date, end_date, keyword. Allows selecting tracks to display on a map.
-  """
-  tracks = []
-  start_date = request.values.get('start_date', '').strip()
-  end_date = request.values.get('end_date', '').strip()
-  keyword_str = request.values.get('keyword', '').strip()
+    """
+    Shows tracks filtered by start_date, end_date, keyword. Allows selecting tracks to display on a map.
+    """
+    tracks = []
+    start_date = request.values.get("start_date", "").strip()
+    end_date = request.values.get("end_date", "").strip()
+    keyword_str = request.values.get("keyword", "").strip()
 
-  if request.method == 'GET':
-    # Populate the track list based on filters
-    if keyword_str:
-      keywords = [k.strip() for k in keyword_str.split(',') if k.strip()]
-      tracks = get_tracks_by_keyword(keywords)
-      # Optionally filter by date range if provided
-      if start_date or end_date:
-        sd = start_date or '0001-01-01'
-        ed = end_date or '9999-12-31'
-        filtered = []
-        for t in tracks:
-          td = t['date_taken']
-          # td may be date/datetime or string
-          try:
-            td_date = td.date() if hasattr(td, 'date') else datetime.strptime(str(td), '%Y-%m-%d').date()
-          except Exception:
-            td_date = None
-          if td_date:
-            if sd <= str(td_date) <= ed:
-              filtered.append(t)
-        tracks = filtered
-    elif start_date or end_date:
-      sd = start_date or end_date
-      ed = end_date or start_date
-      tracks = get_tracks_by_date_range(sd, ed)
+    if request.method == "GET":
+        # Populate the track list based on filters
+        if keyword_str:
+            keywords = [k.strip() for k in keyword_str.split(",") if k.strip()]
+            tracks = get_tracks_by_keyword(keywords)
+            # Optionally filter by date range if provided
+            if start_date or end_date:
+                sd = start_date or "0001-01-01"
+                ed = end_date or "9999-12-31"
+                filtered = []
+                for t in tracks:
+                    td = t["date_taken"]
+                    # td may be date/datetime or string
+                    try:
+                        td_date = (
+                            td.date()
+                            if hasattr(td, "date")
+                            else datetime.strptime(str(td), "%Y-%m-%d").date()
+                        )
+                    except Exception:
+                        td_date = None
+                    if td_date:
+                        if sd <= str(td_date) <= ed:
+                            filtered.append(t)
+                tracks = filtered
+        elif start_date or end_date:
+            sd = start_date or end_date
+            ed = end_date or start_date
+            tracks = get_tracks_by_date_range(sd, ed)
 
-    selected = request.values.getlist('selected') if request.values else []
-    return render_template('show_tracks.html', tracks=tracks, start_date=start_date, end_date=end_date, keyword=keyword_str, map_available=False, selected=selected)
+        selected = request.values.getlist("selected") if request.values else []
+        return render_template(
+            "show_tracks.html",
+            tracks=tracks,
+            start_date=start_date,
+            end_date=end_date,
+            keyword=keyword_str,
+            map_available=False,
+            selected=selected,
+        )
 
-  # POST - generate map for selected tracks
-  selected = request.form.getlist('selected')
-  if not selected:
-    return render_template('show_tracks.html', tracks=[], start_date=start_date, end_date=end_date, keyword=keyword_str, map_available=False, message='No tracks selected')
+    # POST - generate map for selected tracks
+    selected = request.form.getlist("selected")
+    if not selected:
+        return render_template(
+            "show_tracks.html",
+            tracks=[],
+            start_date=start_date,
+            end_date=end_date,
+            keyword=keyword_str,
+            map_available=False,
+            message="No tracks selected",
+        )
 
-  # strong/vivid colors for better contrast on the map
-  colors = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#46f0f0','#f032e6','#ffe119','#008080','#000000']
-  m = folium.Map(tiles='OpenStreetMap')
-  all_points = []
+    # strong/vivid colors for better contrast on the map
+    colors = [
+        "#e6194b",
+        "#3cb44b",
+        "#4363d8",
+        "#f58231",
+        "#911eb4",
+        "#46f0f0",
+        "#f032e6",
+        "#ffe119",
+        "#008080",
+        "#000000",
+    ]
+    m = folium.Map(tiles="OpenStreetMap")
+    all_points = []
 
-  for idx, val in enumerate(selected):
-    # expected format: date::filename
-    try:
-      date_part, filename = val.split('::', 1)
-      # parse date to year/month/day
-      dt = datetime.fromisoformat(date_part)
-      year = dt.year
-      month = dt.month
-      day = dt.day
-    except Exception:
-      # fallback: try splitting by space if any
-      parts = val.split('::')
-      if len(parts) >= 2:
-        date_part = parts[0]
-        filename = parts[1]
-        dt = datetime.fromisoformat(date_part)
-        year = dt.year; month = dt.month; day = dt.day
-      else:
-        continue
+    for idx, val in enumerate(selected):
+        # expected format: date::filename
+        try:
+            date_part, filename = val.split("::", 1)
+            # parse date to year/month/day
+            dt = datetime.fromisoformat(date_part)
+            year = dt.year
+            month = dt.month
+            day = dt.day
+        except Exception:
+            # fallback: try splitting by space if any
+            parts = val.split("::")
+            if len(parts) >= 2:
+                date_part = parts[0]
+                filename = parts[1]
+                dt = datetime.fromisoformat(date_part)
+                year = dt.year
+                month = dt.month
+                day = dt.day
+            else:
+                continue
 
-    points = get_gpx_points(year, month, day, filename)
-    if not points:
-      continue
+        points = get_gpx_points(year, month, day, filename)
+        if not points:
+            continue
 
-    all_points.extend(points)
-    color = colors[idx % len(colors)]
-    folium.PolyLine(locations=[(lat, lon) for lat, lon in points], color=color, weight=4, opacity=0.8, tooltip=filename).add_to(m)
+        all_points.extend(points)
+        color = colors[idx % len(colors)]
+        folium.PolyLine(
+            locations=[(lat, lon) for lat, lon in points],
+            color=color,
+            weight=4,
+            opacity=0.8,
+            tooltip=filename,
+        ).add_to(m)
 
-  if all_points:
-    m.fit_bounds(all_points)
+    if all_points:
+        m.fit_bounds(all_points)
 
-  # ensure maps dir exists and save
-  maps_dir = os.path.join('static', 'maps')
-  os.makedirs(maps_dir, exist_ok=True)
-  map_path = os.path.join(maps_dir, 'show_tracks.html')
-  m.save(map_path)
+    # ensure maps dir exists and save
+    maps_dir = os.path.join("static", "maps")
+    os.makedirs(maps_dir, exist_ok=True)
+    map_path = os.path.join(maps_dir, "show_tracks.html")
+    m.save(map_path)
 
-  return render_template('show_tracks.html', tracks=[], start_date=start_date, end_date=end_date, keyword=keyword_str, map_available=True, map_url='/' + map_path, selected=selected)
+    return render_template(
+        "show_tracks.html",
+        tracks=[],
+        start_date=start_date,
+        end_date=end_date,
+        keyword=keyword_str,
+        map_available=True,
+        map_url="/" + map_path,
+        selected=selected,
+    )
 
 
-@app.route("/photo_by_keyword", methods = ["GET", "POST"])
+@app.route("/photo_by_keyword", methods=["GET", "POST"])
 @login_required
 def photo_by_keyword():
-  photos = []
-  keyword_str = request.args.get("keyword", "").strip()
+    photos = []
+    keyword_str = request.args.get("keyword", "").strip()
 
-  if keyword_str:
-    """keywords can be split by comma"""
-    keywords = [keyword.strip() for keyword in keyword_str.split(",")]
-    photos = get_photos_by_keywords(keywords)
+    if keyword_str:
+        """keywords can be split by comma"""
+        keywords = [keyword.strip() for keyword in keyword_str.split(",")]
+        photos = get_photos_by_keywords(keywords)
 
-  return render_template("photo_by_keyword.html", photos = photos, keyword = keyword_str)
+    return render_template("photo_by_keyword.html", photos=photos, keyword=keyword_str)
 
 
-@app.route("/photo_by_date", methods = ["GET"])
+@app.route("/photo_by_date", methods=["GET"])
 @login_required
 def photo_by_date():
-  date_str = request.args.get("date")  # e.g. "2025-01-15"
-  showphotos = request.args.get("showphotos")
-  photos = []
-  tracks_exists = False
+    date_str = request.args.get("date")  # e.g. "2025-01-15"
+    showphotos = request.args.get("showphotos")
+    photos = []
+    tracks_exists = False
 
-  if date_str:
-    if showphotos:
-      year, month, day = map(int, date_str.split("-"))
-      return redirect(
-        url_for(
-          "photos_by_date",
-          year = year,
-          month = month,
-          day = day,
-        )
-      )
-    selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    photos = get_photos_by_date(selected_date)
-    row = check_if_track_exists(selected_date)[0]
-    tracks_exists = bool(row["count"]) if row else False
+    if date_str:
+        if showphotos:
+            year, month, day = map(int, date_str.split("-"))
+            return redirect(
+                url_for(
+                    "photos_by_date",
+                    year=year,
+                    month=month,
+                    day=day,
+                )
+            )
+        selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        photos = get_photos_by_date(selected_date)
+        row = check_if_track_exists(selected_date)[0]
+        tracks_exists = bool(row["count"]) if row else False
 
-  return render_template("photo_by_date.html",
-                         photos = photos,
-                         selected_date = date_str,
-                         showphotos = showphotos,
-                         tracks_exists = tracks_exists)
+    return render_template(
+        "photo_by_date.html",
+        photos=photos,
+        selected_date=date_str,
+        showphotos=showphotos,
+        tracks_exists=tracks_exists,
+    )
 
 
-@app.route("/track_by_location", methods = ["GET", "POST"])
+@app.route("/track_by_location", methods=["GET", "POST"])
 @login_required
 def track_by_location():
-  tracks = []
-  location = ""
-  message = ""
-  kmradius = 5
+    tracks = []
+    location = ""
+    message = ""
+    kmradius = 5
 
-  if request.method == "POST":
-    location = request.form.get("location", "").strip()
-    kmradius = request.form.get("kmradius", 5).strip()
-    if location:
-      tracks, message = get_tracks_by_latlon(location, int(kmradius))
+    if request.method == "POST":
+        location = request.form.get("location", "").strip()
+        kmradius = request.form.get("kmradius", 5).strip()
+        if location:
+            tracks, message = get_tracks_by_latlon(location, int(kmradius))
 
-  return render_template("track_by_location.html",
-                         tracks = tracks,
-                         location = location,
-                         kmradius = kmradius,
-                         message = message)
+    return render_template(
+        "track_by_location.html",
+        tracks=tracks,
+        location=location,
+        kmradius=kmradius,
+        message=message,
+    )
 
 
 @app.route("/download/<path:filename>")
 def download_gpx(filename):
-  filename = unquote(filename)
+    filename = unquote(filename)
 
-  if not filename.endswith(".gpx"):
-    abort(400)
+    if not filename.endswith(".gpx"):
+        abort(400)
 
-  file_path = os.path.join(GPX_DIR, filename)
-  if not os.path.isfile(file_path):
-    abort(404)
+    file_path = os.path.join(GPX_DIR, filename)
+    if not os.path.isfile(file_path):
+        abort(404)
 
-  return send_from_directory(
-    GPX_DIR,
-    filename,
-    as_attachment = True
-  )
+    return send_from_directory(GPX_DIR, filename, as_attachment=True)
 
 
 @app.route("/download_track/<int:year>/<int:month>/<int:day>/<path:filename>")
 def download_track(year, month, day, filename):
-  filename = unquote(filename)
-  if not filename.endswith(".gpx"):
-    abort(400)
+    filename = unquote(filename)
+    if not filename.endswith(".gpx"):
+        abort(400)
 
-  url = (
-    f"{NEXTCLOUD_DAV_URL}"
-    f"{NEXTCLOUD_TRACK_DIR}/"
-    f"{year}/{month}/{day}/{filename}"
-  )
+    url = (
+        f"{NEXTCLOUD_DAV_URL}"
+        f"{NEXTCLOUD_TRACK_DIR}/"
+        f"{year}/{month}/{day}/{filename}"
+    )
 
-  r = requests.get(
-    url,
-    auth = (NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
-    stream = True
-  )
+    r = requests.get(url, auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD), stream=True)
 
-  if r.status_code != 200:
-    abort(404)
+    if r.status_code != 200:
+        abort(404)
 
-  response = Response(
-    r.iter_content(chunk_size = 8192)
-  )
+    response = Response(r.iter_content(chunk_size=8192))
 
-  # 🔽 Force download in browser
-  response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-  response.headers["Content-Type"] = r.headers.get(
-    "Content-Type", "application/octet-stream"
-  )
+    # 🔽 Force download in browser
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["Content-Type"] = r.headers.get(
+        "Content-Type", "application/octet-stream"
+    )
 
-  return response
+    return response
 
 
 @app.route("/keywordsearch")
 @login_required
 def keywordsearch():
-  keywords = []
+    keywords = []
 
-  searchstring = request.args.get("searchstring", "").strip()
-  mode = request.args.get("mode")
-  if searchstring:
-    keywords = get_keywords_by_searchstring(searchstring, mode)
+    searchstring = request.args.get("searchstring", "").strip()
+    mode = request.args.get("mode")
+    if searchstring:
+        keywords = get_keywords_by_searchstring(searchstring, mode)
 
-  return render_template("keywords.html", keywords = keywords, searchstring = searchstring, mode = mode)
+    return render_template(
+        "keywords.html", keywords=keywords, searchstring=searchstring, mode=mode
+    )
 
 
 @app.route("/datesearch")
 @login_required
 def datesearch():
-  dates = []
+    dates = []
 
-  searchstring = request.args.get("searchstring", "").strip()
-  mode = request.args.get("mode")
-  if searchstring:
-    dates = get_dates_by_searchstring(searchstring, mode)
+    searchstring = request.args.get("searchstring", "").strip()
+    mode = request.args.get("mode")
+    if searchstring:
+        dates = get_dates_by_searchstring(searchstring, mode)
 
-  return render_template("dates.html", dates = dates, searchstring = searchstring, mode = mode)
+    return render_template(
+        "dates.html", dates=dates, searchstring=searchstring, mode=mode
+    )
 
 
 @app.route("/track_by_date")
 @login_required
 def track_by_date():
-  date_str = request.args.get("date")  # e.g. "2025-01-15"
-  tracks = []
+    date_str = request.args.get("date")  # e.g. "2025-01-15"
+    tracks = []
 
-  if date_str:
-    selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    tracks = get_tracks_by_date(selected_date)
+    if date_str:
+        selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        tracks = get_tracks_by_date(selected_date)
 
-  return render_template("track_by_date.html", tracks = tracks, selected_date = date_str)
+    return render_template("track_by_date.html", tracks=tracks, selected_date=date_str)
 
 
 @app.route("/photos/<int:year>/<int:month>/<int:day>")
 @login_required
 def photos_by_date(year, month, day):
-  url = get_nextcloud_url(NEXTCLOUD_PHOTO_DIR, year, month, day, None)
-  r = get_photos_request(url)
-
-  if r.status_code not in (207, 200):
-    url = get_nextcloud_url(NEXTCLOUD_PHOTO_ARCHIVE_DIR, year, month, day, None)
+    url = get_nextcloud_url(NEXTCLOUD_PHOTO_DIR, year, month, day, None)
     r = get_photos_request(url)
+
     if r.status_code not in (207, 200):
-      return f"Nextcloud error: {r.status_code}", 500
+        url = get_nextcloud_url(NEXTCLOUD_PHOTO_ARCHIVE_DIR, year, month, day, None)
+        r = get_photos_request(url)
+        if r.status_code not in (207, 200):
+            return f"Nextcloud error: {r.status_code}", 500
 
-  tree = ET.fromstring(r.text)
-  ns = {"d": "DAV:"}
+    tree = ET.fromstring(r.text)
+    ns = {"d": "DAV:"}
 
-  photos = []
-  for resp in tree.findall("d:response", ns):
-    href = resp.find("d:href", ns).text
-    if href.lower().endswith(".jpg"):
-      filename = unquote(href.split("/")[-1])
-      photos.append(filename)
-      # logger.info("href=%r filename=%r", href, filename)
+    photos = []
+    for resp in tree.findall("d:response", ns):
+        href = resp.find("d:href", ns).text
+        if href.lower().endswith(".jpg"):
+            filename = unquote(href.split("/")[-1])
+            photos.append(filename)
+            # logger.info("href=%r filename=%r", href, filename)
 
-  return render_template(
-    "photos.html",
-    year = year,
-    month = month,
-    day = day,
-    photos = photos,
-  )
+    return render_template(
+        "photos.html",
+        year=year,
+        month=month,
+        day=day,
+        photos=photos,
+    )
 
 
 @app.route("/show_photo/<int:year>/<int:month>/<int:day>/<path:filename>")
 @login_required
 def show_photo(year, month, day, filename):
-  url = get_nextcloud_url(NEXTCLOUD_PHOTO_DIR, year, month, day, filename)
-  r = get_show_photo_request(url)
-
-  if r.status_code != 200:
-    url = get_nextcloud_url(NEXTCLOUD_PHOTO_ARCHIVE_DIR, year, month, day, filename)
+    url = get_nextcloud_url(NEXTCLOUD_PHOTO_DIR, year, month, day, filename)
     r = get_show_photo_request(url)
-    if r.status_code != 200:
-      abort(r.status_code)
 
-  mimetype = r.headers.get("Content-Type")
-  return Response(
-    r.iter_content(chunk_size = 8192),
-    mimetype = mimetype or "image/jpeg",
-  )
+    if r.status_code != 200:
+        url = get_nextcloud_url(NEXTCLOUD_PHOTO_ARCHIVE_DIR, year, month, day, filename)
+        r = get_show_photo_request(url)
+        if r.status_code != 200:
+            abort(r.status_code)
+
+    mimetype = r.headers.get("Content-Type")
+    return Response(
+        r.iter_content(chunk_size=8192),
+        mimetype=mimetype or "image/jpeg",
+    )
 
 
 @app.route("/photo_info/<int:year>/<int:month>/<int:day>/<path:filename>")
 @login_required
 def photo_info(year, month, day, filename):
-  photo = {}
-  safe_filename = unquote(filename)
+    photo = {}
+    safe_filename = unquote(filename)
 
-  url = get_nextcloud_url(NEXTCLOUD_PHOTO_DIR, year, month, day, filename)
-  r = get_photo_info_request(url)
-
-  if r.status_code != 200:
-    url = get_nextcloud_url(NEXTCLOUD_PHOTO_ARCHIVE_DIR, year, month, day, filename)
+    url = get_nextcloud_url(NEXTCLOUD_PHOTO_DIR, year, month, day, filename)
     r = get_photo_info_request(url)
+
     if r.status_code != 200:
-      abort(r.status_code)
+        url = get_nextcloud_url(NEXTCLOUD_PHOTO_ARCHIVE_DIR, year, month, day, filename)
+        r = get_photo_info_request(url)
+        if r.status_code != 200:
+            abort(r.status_code)
 
-  if get_photo_info(safe_filename, f"{year}-{month}-{day}"):
-    row = get_photo_info(safe_filename, f"{year}-{month}-{day}")[0]
-    """remove duplicate keywords"""
-    keywords = []
-    if row["keywords"]:
-      keywords = sorted(set(
-        kw.strip() for kw in row["keywords"].split(",")
-        if kw.strip()
-      ))
+    if get_photo_info(safe_filename, f"{year}-{month}-{day}"):
+        row = get_photo_info(safe_filename, f"{year}-{month}-{day}")[0]
+        """remove duplicate keywords"""
+        keywords = []
+        if row["keywords"]:
+            keywords = sorted(
+                set(kw.strip() for kw in row["keywords"].split(",") if kw.strip())
+            )
 
-    photo = {
-      **row,
-      "keywords": keywords
-    }
+        photo = {**row, "keywords": keywords}
 
-  return render_template(
-    "photo_info.html",
-    year = year,
-    month = month,
-    day = day,
-    filename = safe_filename,
-    photo = photo,
-  )
+    return render_template(
+        "photo_info.html",
+        year=year,
+        month=month,
+        day=day,
+        filename=safe_filename,
+        photo=photo,
+    )
 
 
 def get_tracks(cursor, cell_id, where_clause, params):
-  result = ""
-  sql = f"""
+    result = ""
+    sql = f"""
     SELECT
       t.date_taken,
       t.name, 
@@ -858,89 +924,91 @@ def get_tracks(cursor, cell_id, where_clause, params):
     {where_clause} 
     AND h.cell_id = '{cell_id}'
     """
-  # logger.info(f"sql get tracks: {sql}")
-  # logger.info(f"params get tracks: {params}")
+    # logger.info(f"sql get tracks: {sql}")
+    # logger.info(f"params get tracks: {params}")
 
-  cursor.execute(sql, params)
-  rows = cursor.fetchall()
-  for row in rows:
-    result += f"<li><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"/track_by_date?date={row['date_taken']}\">{row['date_taken']} - {row['name']} - {row['type']}</a></li>"
-  return result
+    cursor.execute(sql, params)
+    rows = cursor.fetchall()
+    for row in rows:
+        result += f"<li><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"/track_by_date?date={row['date_taken']}\">{row['date_taken']} - {row['name']} - {row['type']}</a></li>"
+    return result
 
 
 @app.route("/heatmap", methods=["GET", "POST"])
 @login_required
 def heatmap():
-  filters = classes.HeatmapFilters()
-  classes.get_bounding_box_for_location(filters)
-  is_mobile = request.user_agent.platform in ["android", "iphone"] or \
-              "Mobile" in request.user_agent.string
+    filters = classes.HeatmapFilters()
+    classes.get_bounding_box_for_location(filters)
+    is_mobile = (
+        request.user_agent.platform in ["android", "iphone"]
+        or "Mobile" in request.user_agent.string
+    )
 
-  if request.method == "POST":
-    action = request.form.get("action")
+    if request.method == "POST":
+        action = request.form.get("action")
 
-    if action == "clear_values":
-      filters.clear_values()
+        if action == "clear_values":
+            filters.clear_values()
 
-      return render_template(
-        "heatmap.html",
-        filters = filters,
-        limit_reached = False,
-        result_rows = 1,
-        map_available = False
-      )
+            return render_template(
+                "heatmap.html",
+                filters=filters,
+                limit_reached=False,
+                result_rows=1,
+                map_available=False,
+            )
 
-    filters.read_from_form(request.form)
+        filters.read_from_form(request.form)
 
-  conn = mysql.connector.connect(**db_config)
-  cursor = conn.cursor(dictionary = True)
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
 
-  basic_params = []
-  visit_params = []
-  where_clause = "WHERE 1=1 "
-  having_clause = "HAVING visits >= %s"
+    basic_params = []
+    visit_params = []
+    where_clause = "WHERE 1=1 "
+    having_clause = "HAVING visits >= %s"
 
-  if filters.min_date:
-    basic_params.append(filters.min_date)
-    where_clause += f" AND t.date_taken >= %s"
-  if filters.max_date:
-    basic_params.append(filters.max_date)
-    where_clause += f" AND t.date_taken <= %s"
-  if filters.min_km is not None:
-    basic_params.append(int(filters.min_km * 1000))
-    where_clause += f" AND t.length >= %s"
-  if filters.max_km is not None:
-    basic_params.append(int(filters.max_km * 1000))
-    where_clause += f" AND t.length <= %s"
-  if filters.min_lat is not None:
-    basic_params.append(filters.min_lat)
-    where_clause += f" AND t.middle_lat >= %s"
-  if filters.max_lat is not None:
-    basic_params.append(filters.max_lat)
-    where_clause += f" AND t.middle_lat <= %s"
+    if filters.min_date:
+        basic_params.append(filters.min_date)
+        where_clause += f" AND t.date_taken >= %s"
+    if filters.max_date:
+        basic_params.append(filters.max_date)
+        where_clause += f" AND t.date_taken <= %s"
+    if filters.min_km is not None:
+        basic_params.append(int(filters.min_km * 1000))
+        where_clause += f" AND t.length >= %s"
+    if filters.max_km is not None:
+        basic_params.append(int(filters.max_km * 1000))
+        where_clause += f" AND t.length <= %s"
+    if filters.min_lat is not None:
+        basic_params.append(filters.min_lat)
+        where_clause += f" AND t.middle_lat >= %s"
+    if filters.max_lat is not None:
+        basic_params.append(filters.max_lat)
+        where_clause += f" AND t.middle_lat <= %s"
 
-  if filters.min_lon is not None:
-    basic_params.append(filters.min_lon)
-    where_clause += f" AND t.middle_lon >= %s"
-  if filters.max_lon is not None:
-    basic_params.append(filters.max_lon)
-    where_clause += f" AND t.middle_lon <= %s"
+    if filters.min_lon is not None:
+        basic_params.append(filters.min_lon)
+        where_clause += f" AND t.middle_lon >= %s"
+    if filters.max_lon is not None:
+        basic_params.append(filters.max_lon)
+        where_clause += f" AND t.middle_lon <= %s"
 
-  if filters.track_types:
-    basic_params.extend(filters.track_types)
-    placeholders = ",".join(["%s"] * len(filters.track_types))
-    where_clause += f" AND t.type IN ({placeholders})"
+    if filters.track_types:
+        basic_params.extend(filters.track_types)
+        placeholders = ",".join(["%s"] * len(filters.track_types))
+        where_clause += f" AND t.type IN ({placeholders})"
 
-  # there should always be min visits
-  if filters.min_visits is None:
-    filters.min_visits = 1
-  visit_params.append(filters.min_visits)
+    # there should always be min visits
+    if filters.min_visits is None:
+        filters.min_visits = 1
+    visit_params.append(filters.min_visits)
 
-  if filters.max_visits is not None:
-    visit_params.append(filters.max_visits)
-    having_clause += " AND visits <= %s"
+    if filters.max_visits is not None:
+        visit_params.append(filters.max_visits)
+        having_clause += " AND visits <= %s"
 
-  sql = f"""
+    sql = f"""
     SELECT
     h.cell_id,
     t.type,
@@ -959,111 +1027,108 @@ def heatmap():
     {having_clause}
     LIMIT {filters.max_results + 1}
     """
-  # logger.info(f"sql: {sql}")
-  # logger.info(f"params: {basic_params + visit_params}")
+    # logger.info(f"sql: {sql}")
+    # logger.info(f"params: {basic_params + visit_params}")
 
-  cursor.execute(sql, basic_params + visit_params)
-  rows = cursor.fetchall()
+    cursor.execute(sql, basic_params + visit_params)
+    rows = cursor.fetchall()
 
-  result_rows = len(rows)
-  limit_reached = result_rows > filters.max_results
-  if limit_reached:
-    rows = rows[:filters.max_results]
+    result_rows = len(rows)
+    limit_reached = result_rows > filters.max_results
+    if limit_reached:
+        rows = rows[: filters.max_results]
 
-  all_points = []
+    all_points = []
 
-  m = folium.Map(
-    tiles = "OpenStreetMap"
-  )
+    m = folium.Map(tiles="OpenStreetMap")
 
-  if rows:
+    if rows:
 
-    colormap = linear.Set1_09.to_step(9).scale(1, 10)
+        colormap = linear.Set1_09.to_step(9).scale(1, 10)
 
-    for row in rows:
-      cell_id = row["cell_id"]
-      visits = row["visits"]
+        for row in rows:
+            cell_id = row["cell_id"]
+            visits = row["visits"]
 
-      boundary = h3.cell_to_boundary(cell_id)
-      all_points.extend(boundary)
-      color = colormap(visits)
+            boundary = h3.cell_to_boundary(cell_id)
+            all_points.extend(boundary)
+            color = colormap(visits)
 
-      popup_text = get_tracks(cursor, cell_id, where_clause, basic_params)
-      popup = folium.Popup(
-        popup_text,
-        max_width=300
-      )
+            popup_text = get_tracks(cursor, cell_id, where_clause, basic_params)
+            popup = folium.Popup(popup_text, max_width=300)
 
-      polygon = folium.Polygon(
-        locations = boundary,
-        color = color,
-        fill = True,
-        fill_color = color,
-        fill_opacity = 0.6,
-        weight = 0,
-        popup = popup
-        )
+            polygon = folium.Polygon(
+                locations=boundary,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.6,
+                weight=0,
+                popup=popup,
+            )
 
-      if not is_mobile:
-        polygon.add_child(
-          folium.Tooltip(f"{visits} visits<br /> <ul>{get_tracks(cursor, cell_id, where_clause, basic_params)}</ul>")
-        )
+            if not is_mobile:
+                polygon.add_child(
+                    folium.Tooltip(
+                        f"{visits} visits<br /> <ul>{get_tracks(cursor, cell_id, where_clause, basic_params)}</ul>"
+                    )
+                )
 
-      polygon.add_to(m)
+            polygon.add_to(m)
 
-    colormap.caption = "Number of visits"
-    colormap.add_to(m)
-    m.fit_bounds(all_points)
-  m.save("static/maps/heatmap.html")
+        colormap.caption = "Number of visits"
+        colormap.add_to(m)
+        m.fit_bounds(all_points)
+    m.save("static/maps/heatmap.html")
 
-  cursor.close()
-  conn.close()
+    cursor.close()
+    conn.close()
 
-  return render_template(
-    "heatmap.html",
-    map_available = True,
-    filters=filters,
-    limit_reached = limit_reached,
-    result_rows = result_rows
-  )
+    return render_template(
+        "heatmap.html",
+        map_available=True,
+        filters=filters,
+        limit_reached=limit_reached,
+        result_rows=result_rows,
+    )
+
 
 def get_show_photo_request(url: str) -> Response:
-  r = requests.get(
-    url,
-    auth = (NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
-    stream = True,
-  )
-  return r
+    r = requests.get(
+        url,
+        auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
+        stream=True,
+    )
+    return r
+
 
 def get_photo_info_request(url: str) -> Response:
-  r = requests.get(
-    url,
-    auth = (NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
-    verify = True,  # now properly fixed
-  )
-  return r
+    r = requests.get(
+        url,
+        auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
+        verify=True,  # now properly fixed
+    )
+    return r
 
 
 def get_nextcloud_url(dir, year, month, day, filename) -> str:
-  base_path = f"{dir}/{year}/{month}/{day}"
-  if filename:
-    base_path = f"{base_path}/{filename}"
-  url = (
-      NEXTCLOUD_DAV_URL
-      + base_path
-  )
-  return url
+    base_path = f"{dir}/{year}/{month}/{day}"
+    if filename:
+        base_path = f"{base_path}/{filename}"
+    url = NEXTCLOUD_DAV_URL + base_path
+    return url
 
 
 def get_photos_request(url: str) -> Response:
-  headers = {"Depth": "1"}
-  r = requests.request(
-    "PROPFIND",
-    url,
-    headers = headers,
-    auth = (NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
-  )
-  return r
+    headers = {"Depth": "1"}
+    r = requests.request(
+        "PROPFIND",
+        url,
+        headers=headers,
+        auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
+    )
+    return r
+
 
 # if __name__ == "__main__":
 #     app.run(debug=True)

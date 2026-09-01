@@ -1,11 +1,10 @@
 import logging
-import math
 import os
 
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from urllib.parse import unquote
-
+from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash
 
@@ -28,7 +27,6 @@ from flask import (
     Response,
 )
 
-import utils
 import geo_utils
 import classes
 
@@ -47,6 +45,9 @@ NEXTCLOUD_DAV_URL = os.environ.get("NEXTCLOUD_DAV_URL")
 NEXTCLOUD_PHOTO_DIR = os.environ.get("NEXTCLOUD_PHOTO_SYNC_DIR")
 NEXTCLOUD_PHOTO_ARCHIVE_DIR = os.environ.get("NEXTCLOUD_PHOTO_ARCHIVE_DIR")
 NEXTCLOUD_TRACK_DIR = os.environ.get("NEXTCLOUD_TRACK_SYNC_DIR")
+
+# centralized requests timeout (seconds)
+REQUEST_TIMEOUT = 60
 
 
 @app.context_processor
@@ -81,8 +82,6 @@ def get_user(username):
 
 
 def login_required(view):
-    from functools import wraps
-
     @wraps(view)
     def wrapped(*args, **kwargs):
         if "user_id" not in session:
@@ -152,12 +151,30 @@ def get_tracks_by_latlon(location, radius):
     return results, message
 
 
-def get_tracks_by_keyword(keywords):
+def get_tracks_by_keyword(keywords, extra_info=None, min_len_m=None, max_len_m=None):
     """
     Select all tracks with the given (part of) keyword.
+    Optional DB-level filtering by extra_info (substring, case-insensitive) and length in meters.
     """
-    placeholders = ",".join(["%s"] * len(keywords))
-    params = keywords + [len(keywords)]
+    len_keywords = len(keywords)
+    placeholders = ",".join(["%s"] * len_keywords)
+    params = keywords
+
+    where_clauses = [f"LOWER(keyword) IN ({placeholders})"]
+
+    if extra_info:
+        where_clauses.append("LOWER(extra_info) LIKE %s")
+        params.append(f"%{extra_info.lower()}%")
+    if min_len_m is not None:
+        where_clauses.append("length >= %s")
+        params.append(min_len_m)
+    if max_len_m is not None:
+        where_clauses.append("length <= %s")
+        params.append(max_len_m)
+
+    params.append(len_keywords)
+
+    where_sql = " AND ".join(where_clauses)
 
     sql = f"""
         SELECT DISTINCT
@@ -169,11 +186,14 @@ def get_tracks_by_keyword(keywords):
             ROUND(middle_lat, 6) as lat,
             ROUND(middle_lon, 6) as lon
         FROM v_tracks_by_keyword
-        WHERE LOWER(keyword) IN ({placeholders})
+        WHERE {where_sql}
         GROUP BY name
         HAVING COUNT(DISTINCT keyword) = %s
         ORDER BY date_taken DESC
     """
+
+    # logger.info("SQL: %s", sql)
+    # logger.info("Params: %s", params)
 
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor(dictionary=True)
@@ -214,15 +234,31 @@ def get_tracks_by_date(selected_date):
     return results
 
 
-def get_tracks_by_date_range(start_date, end_date):
+def get_tracks_by_date_range(start_date, end_date, extra_info=None, min_len_m=None, max_len_m=None):
     """
     Select all tracks between start_date and end_date (inclusive).
     start_date and end_date should be strings in YYYY-MM-DD format or date objects.
+    Optional DB-level filtering by extra_info (substring, case-insensitive) and length in meters.
     """
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor(dictionary=True)
 
-    sql = """
+    where_clauses = ["DATE(date_taken) BETWEEN %s AND %s"]
+    params = [f"{start_date}", f"{end_date}"]
+
+    if extra_info:
+        where_clauses.append("LOWER(extra_info) LIKE %s")
+        params.append(f"%{extra_info.lower()}%")
+    if min_len_m is not None:
+        where_clauses.append("length >= %s")
+        params.append(min_len_m)
+    if max_len_m is not None:
+        where_clauses.append("length <= %s")
+        params.append(max_len_m)
+
+    where_sql = " AND ".join(where_clauses)
+
+    sql = f"""
         SELECT
             name,
             date_taken,
@@ -232,11 +268,11 @@ def get_tracks_by_date_range(start_date, end_date):
             ROUND(middle_lat, 6) as lat,
             ROUND(middle_lon, 6) as lon
         FROM track
-        WHERE DATE(date_taken) BETWEEN %s AND %s
+        WHERE {where_sql}
         ORDER BY date_taken DESC
       """
 
-    cursor.execute(sql, (f"{start_date}", f"{end_date}"))
+    cursor.execute(sql, tuple(params))
     results = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -251,7 +287,7 @@ def get_gpx_points(year, month, day, filename):
     """
     try:
         url = get_nextcloud_url(NEXTCLOUD_TRACK_DIR, year, month, day, filename)
-        r = requests.get(url, auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD))
+        r = requests.get(url, auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD), timeout=REQUEST_TIMEOUT)
         if r.status_code != 200:
             return []
 
@@ -541,20 +577,46 @@ def show_tracks():
     start_date = request.values.get("start_date", "").strip()
     end_date = request.values.get("end_date", "").strip()
     keyword_str = request.values.get("keyword", "").strip()
+    # allow filtering by track types (multiple checkboxes named track_type)
+    track_types = request.values.getlist("track_type") if request.values else []
+    # normalize to a set of lowercase values for comparison
+    track_types_set = {t.lower() for t in track_types}
+
+    # additional optional filters: extra_info substring and length range
+    extra_info = request.values.get("extra_info", "").strip()
+    min_length = request.values.get("min_length", "").strip()
+    max_length = request.values.get("max_length", "").strip()
+    # parse numeric bounds if provided
+    try:
+        min_length_val = float(min_length) if min_length != "" else None
+    except Exception:
+        min_length_val = None
+    try:
+        max_length_val = float(max_length) if max_length != "" else None
+    except Exception:
+        max_length_val = None
 
     if request.method == "GET":
         # Populate the track list based on filters
+        # convert length km filters to meters for DB filtering
+        min_len_m = None
+        max_len_m = None
+        if min_length_val is not None:
+            min_len_m = int(min_length_val * 1000)
+        if max_length_val is not None:
+            max_len_m = int(max_length_val * 1000)
+
         if keyword_str:
             keywords = [k.strip() for k in keyword_str.split(",") if k.strip()]
-            tracks = get_tracks_by_keyword(keywords)
-            # Optionally filter by date range if provided
+            tracks = get_tracks_by_keyword(keywords, extra_info=extra_info, min_len_m=min_len_m, max_len_m=max_len_m)
+            # Optionally filter by date range if provided (DB query does date range filtering when used below)
             if start_date or end_date:
                 sd = start_date or "0001-01-01"
                 ed = end_date or "9999-12-31"
+                # filter by date fields
                 filtered = []
                 for t in tracks:
                     td = t["date_taken"]
-                    # td may be date/datetime or string
                     try:
                         td_date = (
                             td.date()
@@ -570,7 +632,16 @@ def show_tracks():
         elif start_date or end_date:
             sd = start_date or end_date
             ed = end_date or start_date
-            tracks = get_tracks_by_date_range(sd, ed)
+            tracks = get_tracks_by_date_range(sd, ed, extra_info=extra_info, min_len_m=min_len_m, max_len_m=max_len_m)
+
+        # If track type filters provided, apply them client-side here
+        if track_types_set:
+            filtered_tracks = []
+            for t in tracks:
+                ttype = (t.get("type") or "").lower()
+                if ttype in track_types_set:
+                    filtered_tracks.append(t)
+            tracks = filtered_tracks
 
         selected = request.values.getlist("selected") if request.values else []
         return render_template(
@@ -581,6 +652,10 @@ def show_tracks():
             keyword=keyword_str,
             map_available=False,
             selected=selected,
+            track_types=track_types,
+            extra_info=extra_info,
+            min_length=min_length,
+            max_length=max_length,
         )
 
     # POST - generate map for selected tracks
@@ -594,6 +669,10 @@ def show_tracks():
             keyword=keyword_str,
             map_available=False,
             message="No tracks selected",
+            track_types=track_types,
+            extra_info=extra_info,
+            min_length=min_length,
+            max_length=max_length,
         )
 
     # strong/vivid colors for better contrast on the map
@@ -666,6 +745,10 @@ def show_tracks():
         map_available=True,
         map_url="/" + map_path,
         selected=selected,
+        track_types=track_types,
+        extra_info=extra_info,
+        min_length=min_length,
+        max_length=max_length,
     )
 
 
@@ -765,7 +848,7 @@ def download_track(year, month, day, filename):
         f"{year}/{month}/{day}/{filename}"
     )
 
-    r = requests.get(url, auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD), stream=True)
+    r = requests.get(url, auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD), stream=True, timeout=REQUEST_TIMEOUT)
 
     if r.status_code != 200:
         abort(404)
@@ -921,7 +1004,7 @@ def get_tracks(cursor, cell_id, where_clause, params):
     FROM track_h3 h
     JOIN track t
     ON h.track_name=t.name
-    {where_clause} 
+    {where_clause}
     AND h.cell_id = '{cell_id}'
     """
     # logger.info(f"sql get tracks: {sql}")
@@ -970,34 +1053,34 @@ def heatmap():
 
     if filters.min_date:
         basic_params.append(filters.min_date)
-        where_clause += f" AND t.date_taken >= %s"
+        where_clause += " AND t.date_taken >= %s"
     if filters.max_date:
         basic_params.append(filters.max_date)
-        where_clause += f" AND t.date_taken <= %s"
+        where_clause += " AND t.date_taken <= %s"
     if filters.min_km is not None:
         basic_params.append(int(filters.min_km * 1000))
-        where_clause += f" AND t.length >= %s"
+        where_clause += " AND t.length >= %s"
     if filters.max_km is not None:
         basic_params.append(int(filters.max_km * 1000))
-        where_clause += f" AND t.length <= %s"
+        where_clause += " AND t.length <= %s"
     if filters.min_lat is not None:
         basic_params.append(filters.min_lat)
-        where_clause += f" AND t.middle_lat >= %s"
+        where_clause += " AND t.middle_lat >= %s"
     if filters.max_lat is not None:
         basic_params.append(filters.max_lat)
-        where_clause += f" AND t.middle_lat <= %s"
+        where_clause += " AND t.middle_lat <= %s"
 
     if filters.min_lon is not None:
         basic_params.append(filters.min_lon)
-        where_clause += f" AND t.middle_lon >= %s"
+        where_clause += " AND t.middle_lon >= %s"
     if filters.max_lon is not None:
         basic_params.append(filters.max_lon)
-        where_clause += f" AND t.middle_lon <= %s"
+        where_clause += " AND t.middle_lon <= %s"
 
     if filters.track_types:
         basic_params.extend(filters.track_types)
         placeholders = ",".join(["%s"] * len(filters.track_types))
-        where_clause += f" AND t.type IN ({placeholders})"
+        where_clause += " AND t.type IN (" + placeholders + ")"
 
     # there should always be min visits
     if filters.min_visits is None:
@@ -1098,6 +1181,7 @@ def get_show_photo_request(url: str) -> Response:
         url,
         auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
         stream=True,
+        timeout=REQUEST_TIMEOUT,
     )
     return r
 
@@ -1107,6 +1191,7 @@ def get_photo_info_request(url: str) -> Response:
         url,
         auth=(NEXTCLOUD_USER, NEXTCLOUD_PASSWORD),
         verify=True,  # now properly fixed
+        timeout=REQUEST_TIMEOUT,
     )
     return r
 

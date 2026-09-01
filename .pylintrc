@@ -1,0 +1,4 @@
+[MAIN]
+
+disable=missing-function-docstring, missing-class-docstring, missing-module-docstring, too-few-public-methods, too-many-arguments, too-many-locals, too-many-instance-attributes, too-many-branches, too-many-statements, too-many-return-statements, too-many-nested-blocks, duplicate-code, line-too-long
+

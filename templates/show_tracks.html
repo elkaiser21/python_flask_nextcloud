@@ -6,30 +6,71 @@
 
 <h2>Show tracks on map</h2>
 
-<form class="row g-2 mb-4 align-items-center" method="get">
-  <div class="col-6 col-md-3">
-    <div class="input-group input-group-sm">
-      <span class="input-group-text">Start</span>
-      <input class="form-control form-control-sm" id="start_date" name="start_date" type="date" value="{{ start_date }}" />
+<form class="g-2 mb-4 align-items-center" method="get">
+  <div class="row">
+    <div class="col-6 col-md-3">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text">Start</span>
+        <input class="form-control form-control-sm" id="start_date" name="start_date" type="date" value="{{ start_date }}" />
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text">End</span>
+        <input class="form-control form-control-sm" id="end_date" name="end_date" type="date" value="{{ end_date }}" />
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text">Min length (km)</span>
+        <input class="form-control form-control-sm" id="min_length" name="min_length" placeholder="min" type="number" step="0.1" value="{{ min_length if min_length is defined else '' }}" />
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text">Max length (km)</span>
+        <input class="form-control form-control-sm" id="max_length" name="max_length" placeholder="max" type="number" step="0.1" value="{{ max_length if max_length is defined else '' }}" />
+      </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="input-group input-group-sm">
-      <span class="input-group-text">End</span>
-      <input class="form-control form-control-sm" id="end_date" name="end_date" type="date" value="{{ end_date }}" />
+
+  <div class="row"><div class="col-12">&nbsp;</div></div>
+
+  <div class="row mb-3">
+    <div class="col-12 col-md-6">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text">Keyword</span>
+        <input class="form-control form-control-sm" id="keyword" name="keyword" placeholder="Enter keyword ..." type="text" value="{{ keyword }}" />
+      </div>
+    </div>
+    <div class="col-12 col-md-5">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text">Extra info</span>
+        <input class="form-control form-control-sm" id="extra_info" name="extra_info" placeholder="Filter extra info ..." type="text" value="{{ extra_info if extra_info is defined else '' }}" />
+      </div>
+    </div>
+    <div class="col-12 col-md-1">
+      <div class="d-grid">
+        <button class="btn btn-primary btn-sm h-100" type="submit">Filter</button>
+      </div>
     </div>
   </div>
-  <div class="col-12 col-md-4">
-    <div class="input-group input-group-sm">
-      <span class="input-group-text">Keyword</span>
-      <input class="form-control form-control-sm" id="keyword" name="keyword" placeholder="Enter keyword ..." type="text" value="{{ keyword }}" />
+
+  <hr>
+
+  <div class="row">
+    <div class="col-12 col-md-2">
+      <div class="d-flex align-items-center">
+        {% for t in ["Walk", "Cycle", "Car"] %}
+        <div class="form-check form-check-inline mb-0 ms-1">
+          <input class="form-check-input" type="checkbox" name="track_type" id="track_type_{{ t }}" value="{{ t }}" {% if track_types is defined and t in track_types %}checked{% endif %}>
+          <label class="form-check-label" for="track_type_{{ t }}">{{ t }}</label>
+        </div>
+        {% endfor %}
+      </div>
     </div>
   </div>
-  <div class="col-12 col-md-2">
-    <div class="d-grid">
-      <button class="btn btn-success btn-sm h-100" type="submit">Filter</button>
-    </div>
-  </div>
+
 </form>
 
 {% if message %}
@@ -47,8 +88,8 @@
           <th>Name</th>
           <th>type</th>
           <th>info</th>
-          <th>length (km)</th>
-          <th class="text-center">Download</th>
+          <th class="text-end" style="width:80px;">length (km)</th>
+          <th class="text-center" style="width:48px;"><span class="visually-hidden">Download</span></th>
         </tr>
       </thead>
       <tbody>
@@ -56,12 +97,12 @@
         {% set val = (track.date_taken|string) + '::' + (track.name|string) %}
         <tr>
           <td><input class="track-checkbox" type="checkbox" name="selected" value="{{ val }}" {% if selected and val in selected %}checked{% endif %}></td>
-          <td>{{ track.date_taken }}</td>
+          <td><a href="{{ url_for('photo_by_date', date=track.date_taken) }}" >{{ track.date_taken }}</a></td>
           <td>{{ track.name }}</td>
           <td>{{ track.type }}</td>
           <td>{{ track.extra_info }}</td>
-          <td class="text-end">{{ track.len }}</td>
-          <td class="text-center">
+          <td class="text-end text-nowrap" style="width:80px;">{{ track.len }}</td>
+          <td class="text-center text-nowrap" style="width:48px;">
             <a class="btn btn-sm btn-outline-secondary" title="Download GPX" href="{{ url_for('download_track', year=track.date_taken.year, month=track.date_taken.month, day=track.date_taken.day, filename=track.name) }}">
               <i class="bi bi-download" aria-hidden="true"></i>
               <span class="visually-hidden">Download GPX</span>
@@ -123,13 +164,23 @@
       var startDate = {{ start_date|tojson }};
       var endDate = {{ end_date|tojson }};
       var keywordVal = {{ keyword|tojson }};
+      var trackTypesFromServer = {{ track_types|tojson if track_types is defined else '[]' }};
+      var extraInfoFromServer = {{ extra_info|tojson if extra_info is defined else '""' }};
+      var minLengthFromServer = {{ min_length|tojson if min_length is defined else '""' }};
+      var maxLengthFromServer = {{ max_length|tojson if max_length is defined else '""' }};
 
-      function buildBackHref(selectedVals) {
+      function buildBackHref(selectedVals, types, extraInfo, minLength, maxLength) {
         var params = new URLSearchParams();
         if (startDate) params.append('start_date', startDate);
         if (endDate) params.append('end_date', endDate);
         if (keywordVal) params.append('keyword', keywordVal);
         selectedVals.forEach(function (v) { params.append('selected', v); });
+        if (types && types.length) {
+          types.forEach(function (t) { params.append('track_type', t); });
+        }
+        if (extraInfo) params.append('extra_info', extraInfo);
+        if (minLength) params.append('min_length', minLength);
+        if (maxLength) params.append('max_length', maxLength);
         var qs = params.toString();
         return qs ? (baseUrl + '?' + qs) : baseUrl;
       }
@@ -142,14 +193,39 @@
         $('input.track-checkbox:checked').each(function () { selVals.push(this.value); });
       }
 
-      backLink.attr('href', buildBackHref(selVals));
+      // initial track types: server-provided or from DOM
+      var trackTypes = [];
+      if (trackTypesFromServer && trackTypesFromServer.length) {
+        trackTypes = trackTypesFromServer;
+      } else {
+        $('input[name="track_type"]:checked').each(function () { trackTypes.push(this.value); });
+      }
+
+      // initial extra/lengths
+      var extraInfo = extraInfoFromServer || '';
+      if (!extraInfo && $('#extra_info').length) extraInfo = $('#extra_info').val();
+      var minLength = minLengthFromServer || '';
+      if (!minLength && $('#min_length').length) minLength = $('#min_length').val();
+      var maxLength = maxLengthFromServer || '';
+      if (!maxLength && $('#max_length').length) maxLength = $('#max_length').val();
+
+      backLink.attr('href', buildBackHref(selVals, trackTypes, extraInfo, minLength, maxLength));
 
       // also update link when user toggles checkboxes client-side
-      $('input.track-checkbox').on('change', function () {
+      function updateBackLink() {
         var curr = [];
         $('input.track-checkbox:checked').each(function () { curr.push(this.value); });
-        backLink.attr('href', buildBackHref(curr));
-      });
+        var types = [];
+        $('input[name="track_type"]:checked').each(function () { types.push(this.value); });
+        var e = $('#extra_info').length ? $('#extra_info').val() : '';
+        var mn = $('#min_length').length ? $('#min_length').val() : '';
+        var mx = $('#max_length').length ? $('#max_length').val() : '';
+        backLink.attr('href', buildBackHref(curr, types, e, mn, mx));
+      }
+
+      $('input.track-checkbox').on('change', function () { updateBackLink(); });
+      $('input[name="track_type"]').on('change', function () { updateBackLink(); });
+      $('input#extra_info, input#min_length, input#max_length').on('change keyup', function () { updateBackLink(); });
 
       // show/hide sections based on map_available
       var mapAvailable = {{ 'true' if map_available else 'false' }};

@@ -154,13 +154,25 @@ def get_tracks_by_latlon(location, radius):
 def get_tracks_by_keyword(keywords, extra_info=None, min_len_m=None, max_len_m=None):
     """
     Select all tracks with the given (part of) keyword.
+    For a single keyword, use a case-insensitive LIKE match; for multiple keywords, use the existing IN-based match.
     Optional DB-level filtering by extra_info (substring, case-insensitive) and length in meters.
     """
-    len_keywords = len(keywords)
-    placeholders = ",".join(["%s"] * len_keywords)
-    params = keywords
+    normalized_keywords = [kw.strip() for kw in keywords if kw and kw.strip()]
+    if not normalized_keywords:
+        return []
 
-    where_clauses = [f"LOWER(keyword) IN ({placeholders})"]
+    params = []
+    where_clauses = []
+
+    if len(normalized_keywords) == 1:
+        kw = normalized_keywords[0].lower()
+        where_clauses.append("LOWER(keyword) LIKE %s")
+        params.append(f"%{kw}%")
+    else:
+        placeholders = ",".join(["%s"] * len(normalized_keywords))
+        where_clauses.append(f"LOWER(keyword) IN ({placeholders})")
+        params.extend([kw.lower() for kw in normalized_keywords])
+        params.append(len(normalized_keywords))
 
     if extra_info:
         where_clauses.append("LOWER(extra_info) LIKE %s")
@@ -172,32 +184,43 @@ def get_tracks_by_keyword(keywords, extra_info=None, min_len_m=None, max_len_m=N
         where_clauses.append("length <= %s")
         params.append(max_len_m)
 
-    params.append(len_keywords)
-
     where_sql = " AND ".join(where_clauses)
 
-    sql = f"""
-        SELECT DISTINCT
-            name,
-            date_taken,
-            extra_info,
-            type,
-            ROUND(length/1000, 2) as len,
-            ROUND(middle_lat, 6) as lat,
-            ROUND(middle_lon, 6) as lon
-        FROM v_tracks_by_keyword
-        WHERE {where_sql}
-        GROUP BY name
-        HAVING COUNT(DISTINCT keyword) = %s
-        ORDER BY date_taken DESC
-    """
-
-    # logger.info("SQL: %s", sql)
-    # logger.info("Params: %s", params)
+    if len(normalized_keywords) > 1:
+        sql = f"""
+            SELECT DISTINCT
+                name,
+                date_taken,
+                extra_info,
+                type,
+                ROUND(length/1000, 2) as len,
+                ROUND(middle_lat, 6) as lat,
+                ROUND(middle_lon, 6) as lon
+            FROM v_tracks_by_keyword
+            WHERE {where_sql}
+            GROUP BY name
+            HAVING COUNT(DISTINCT keyword) = %s
+            ORDER BY date_taken DESC
+        """
+    else:
+        sql = f"""
+            SELECT DISTINCT
+                name,
+                date_taken,
+                extra_info,
+                type,
+                ROUND(length/1000, 2) as len,
+                ROUND(middle_lat, 6) as lat,
+                ROUND(middle_lon, 6) as lon
+            FROM v_tracks_by_keyword
+            WHERE {where_sql}
+            GROUP BY name
+            ORDER BY date_taken DESC
+        """
 
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor(dictionary=True)
-    cursor.execute(sql, params)
+    cursor.execute(sql, tuple(params))
     results = cursor.fetchall()
 
     cursor.close()
@@ -295,35 +318,48 @@ def get_gpx_points(year, month, day, filename):
         root = ET.fromstring(data)
         ns = {}
         if root.tag.startswith("{"):
-            ns_uri = root.tag.split("}")[0].strip("{")
-            ns = {"gpx": ns_uri}
+            # namespace-aware GPX
+            uri = root.tag.split("}")[0].strip("{")
+            ns = {"g": uri}
 
         points = []
-        # Try namespaced trkpt first
+        # find all trkpt elements
         if ns:
-            for trkpt in root.findall(".//gpx:trkpt", ns):
-                lat = trkpt.attrib.get("lat")
-                lon = trkpt.attrib.get("lon")
-                if lat and lon:
-                    points.append((float(lat), float(lon)))
+            for trkpt in root.findall('.//g:trkpt', ns):
+                lat = float(trkpt.attrib.get('lat'))
+                lon = float(trkpt.attrib.get('lon'))
+                points.append((lat, lon))
         else:
-            for trkpt in root.findall(".//trkpt"):
-                lat = trkpt.attrib.get("lat")
-                lon = trkpt.attrib.get("lon")
-                if lat and lon:
-                    points.append((float(lat), float(lon)))
+            for trkpt in root.findall('.//trkpt'):
+                lat = float(trkpt.attrib.get('lat'))
+                lon = float(trkpt.attrib.get('lon'))
+                points.append((lat, lon))
 
         return points
-    except Exception as e:
-        logger.exception(
-            "Error extracting GPX points for %s/%s/%s %s: %s",
-            year,
-            month,
-            day,
-            filename,
-            e,
-        )
+    except Exception:
         return []
+
+
+def get_keywords_for_tracks(track_names):
+    """
+    Fetch keywords for a list of track names. Returns a dict: {track_name: [kw,...]}
+    """
+    if not track_names:
+        return {}
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor(dictionary=True)
+    placeholders = ",".join(["%s"] * len(track_names))
+    sql = f"SELECT track_name, keyword FROM track_keywords WHERE track_name IN ({placeholders})"
+    cursor.execute(sql, tuple(track_names))
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    mapping = {}
+    for row in rows:
+        name = row.get('track_name')
+        kw = row.get('keyword')
+        mapping.setdefault(name, []).append(kw)
+    return mapping
 
 
 def get_photos_by_keywords(keywords):
@@ -642,6 +678,12 @@ def show_tracks():
                 if ttype in track_types_set:
                     filtered_tracks.append(t)
             tracks = filtered_tracks
+
+        # fetch keywords for displayed tracks and attach
+        track_names = [t.get('name') for t in tracks if t.get('name')]
+        keywords_map = get_keywords_for_tracks(track_names)
+        for t in tracks:
+            t['keywords'] = keywords_map.get(t.get('name'), [])
 
         selected = request.values.getlist("selected") if request.values else []
         return render_template(

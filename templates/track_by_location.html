@@ -73,7 +73,10 @@
 {% block extra_js %}
 <script>
     $(document).ready(function () {
-      $('#tracksTable').DataTable();
+      $('#tracksTable').DataTable({
+          pageLength: 50,
+          lengthMenu: [ [10, 25, 50, 100, -1], [10, 25, 50, 100, 'All'] ]
+        });
     });
 </script>
 {% endblock %}

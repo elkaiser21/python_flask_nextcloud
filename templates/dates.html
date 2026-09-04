@@ -66,7 +66,10 @@
 {% block extra_js %}
 <script>
     $(document).ready(function () {
-      $('#dateTable').DataTable();
+      $('#dateTable').DataTable({
+          pageLength: 50,
+          lengthMenu: [ [10, 25, 50, 100, -1], [10, 25, 50, 100, 'All'] ]
+        });
     });
 </script>
 {% endblock %}

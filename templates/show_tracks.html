@@ -61,7 +61,7 @@
   <div class="row">
     <div class="col-12 col-md-2">
       <div class="d-flex align-items-center">
-        {% for t in ["Walk", "Cycle", "Car"] %}
+        {% for t in ["Walk", "Cycle", "Car", "Other"] %}
         <div class="form-check form-check-inline mb-0 ms-1">
           <input class="form-check-input" type="checkbox" name="track_type" id="track_type_{{ t }}" value="{{ t }}" {% if track_types is defined and t in track_types %}checked{% endif %}>
           <label class="form-check-label" for="track_type_{{ t }}">{{ t }}</label>
@@ -89,6 +89,7 @@
           <th>type</th>
           <th>info</th>
           <th class="text-end" style="width:80px;">length (km)</th>
+          <th class="text-center" style="width:48px;"><span class="visually-hidden">Keywords</span></th>
           <th class="text-center" style="width:48px;"><span class="visually-hidden">Download</span></th>
         </tr>
       </thead>
@@ -102,6 +103,9 @@
           <td>{{ track.type }}</td>
           <td>{{ track.extra_info }}</td>
           <td class="text-end text-nowrap" style="width:80px;">{{ track.len }}</td>
+          <td class="text-center" style="width:48px;">
+            <button type="button" class="btn btn-sm btn-outline-secondary keywords-btn" data-bs-toggle="popover" data-bs-trigger="focus" title="Keywords" data-bs-content="{{ (track.keywords|join(', '))|e }}">…</button>
+          </td>
           <td class="text-center text-nowrap" style="width:48px;">
             <a class="btn btn-sm btn-outline-secondary" title="Download GPX" href="{{ url_for('download_track', year=track.date_taken.year, month=track.date_taken.month, day=track.date_taken.day, filename=track.name) }}">
               <i class="bi bi-download" aria-hidden="true"></i>
@@ -140,8 +144,23 @@
     $(document).ready(function () {
       var table = null;
       if ($('#tracksTable').length) {
-        table = $('#tracksTable').DataTable();
+        table = $('#tracksTable').DataTable({
+          pageLength: 50,
+          lengthMenu: [ [10, 25, 50, 100, -1], [10, 25, 50, 100, 'All'] ]
+        });
+        // initialize bootstrap popovers for keywords
+        $('[data-bs-toggle="popover"]').popover({html:false});
       }
+
+      // if table redraws (paging) keep selectAll behavior
+      $('#tracksTable').on('draw.dt', function () {
+        var all = $('input.track-checkbox');
+        if (all.length === 0) { $('#selectAll').prop('checked', false); return; }
+        var checked = all.length === all.filter(':checked').length;
+        $('#selectAll').prop('checked', checked);
+        // re-init popovers after redraw
+        $('[data-bs-toggle="popover"]').popover({html:false});
+      });
 
       // handle select all
       $('#selectAll').on('click', function () {

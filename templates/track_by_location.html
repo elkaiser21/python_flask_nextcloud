@@ -28,56 +28,151 @@
         />
     </div>
     <div class="col-md-4">
-        <button class="btn btn-success w-100" type="submit">Search</button>
+        <div class="d-flex gap-2">
+          <button class="btn btn-success w-100" type="submit" name="action" value="search">Search</button>
+        </div>
     </div>
+
+    {% if tracks %}
+    <div class="col-12 mt-3">
+      <div id="tracksSection" class="table-responsive">
+        <table id="tracksTable" class="table table-striped table-bordered table-hover">
+          <thead class="table-dark">
+            <tr>
+              <th><input type="checkbox" id="selectAll" title="Select all"></th>
+              <th>Date</th>
+              <th>Name</th>
+              <th>type</th>
+              <th>info</th>
+              <th class="text-center" style="width:48px;"><span class="visually-hidden">Keywords</span></th>
+              <th class="text-end" style="width:80px;">length (km)</th>
+              <th class="text-center" style="width:48px;"><span class="visually-hidden">Download</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for track in tracks %}
+            {% set val = (track.date_taken|string) + '::' + (track.name|string) %}
+            <tr>
+              <td><input class="track-checkbox" type="checkbox" name="selected" value="{{ val }}" {% if selected and val in selected %}checked{% endif %}></td>
+              <td><a href="{{ url_for('photo_by_date', date=track.date_taken) }}">{{ track.date_taken }}</a></td>
+              <td>{{ track.name }}</td>
+              <td>{{ track.type }}</td>
+              <td>{{ track.extra_info }}</td>
+              <td class="text-center" style="width:48px;">
+                <button type="button" class="btn btn-sm btn-outline-secondary keywords-btn" data-bs-toggle="popover" data-bs-trigger="focus" title="Keywords" data-bs-content="{{ (track.keywords|join(', '))|e }}">...</button>
+              </td>
+              <td class="text-end text-nowrap" style="width:80px;">{{ track.len }}</td>
+              <td class="text-center text-nowrap" style="width:48px;">
+                <a class="btn btn-sm btn-outline-secondary" title="Download GPX" href="{{ url_for('download_track', year=track.date_taken.year, month=track.date_taken.month, day=track.date_taken.day, filename=track.name) }}">
+                  <i class="bi bi-download" aria-hidden="true"></i>
+                  <span class="visually-hidden">Download GPX</span>
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-3">
+        <button class="btn btn-primary" type="submit">Show on map</button>
+      </div>
+    </div>
+    {% endif %}
 </form>
 
 {% if message %}
 <p>{{ message }}</p>
-
-{% elif tracks %}
-<div class="table-responsive">
-    <table id="tracksTable" class="table table-striped table-bordered table-hover">
-        <thead class="table-dark">
-        <tr>
-            <th>Date</th>
-            <th>Name</th>
-            <th>type</th>
-            <th>info</th>
-            <th>length (km)</th>
-            <th>lat</th>
-            <th>lon</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for track in tracks %}
-        <tr>
-            <td><a href="{{ url_for('photo_by_date', date=track.date_taken) }}">{{ track.date_taken }}</a></td>
-            <td><a href="{{ url_for('download_track', year=track.date_taken.year, month=track.date_taken.month, day=track.date_taken.day,filename=track.name) }}">{{ track.name }}</a></td>
-            <td>{{ track.type }}</td>
-            <td>{{ track.extra_info }}</td>
-            <td class="text-end">{{ track.len }}</td>
-            <td class="text-end">{{ track.lat }}</td>
-            <td class="text-end">{{ track.lon }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% elif location %}
+{% elif not tracks and location and not map_available %}
 <p>No tracks found.</p>
 {% endif %}
+
+<!-- Map section -->
+<div id="mapSection" style="display:none;">
+  {% if map_available %}
+<h3>Map</h3>
+<iframe src="{{ map_url or '/static/maps/track_by_location.html' }}" width="100%" height="600" frameborder="0"></iframe>
+<div class="mt-3">
+  <a id="backToListLink" class="btn btn-secondary" href="#">Back to list</a>
+</div>
+  {% endif %}
+</div>
 
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    $(document).ready(function () {
-      $('#tracksTable').DataTable({
-          pageLength: 50,
-          lengthMenu: [ [10, 25, 50, 100, -1], [10, 25, 50, 100, 'All'] ]
-        });
+$(document).ready(function () {
+  var table = null;
+  if ($('#tracksTable').length) {
+    table = $('#tracksTable').DataTable({
+      pageLength: 50,
+      lengthMenu: [ [10, 25, 50, 100, -1], [10, 25, 50, 100, 'All'] ]
     });
+    // initialize bootstrap popovers for keywords
+    $('[data-bs-toggle="popover"]').popover({html:false});
+  }
+
+  // handle select all
+  $('#selectAll').on('click', function () {
+    var checked = this.checked;
+    $('input.track-checkbox').each(function () { this.checked = checked; });
+  });
+
+  // if table redraws (paging) keep selectAll behavior
+  $('#tracksTable').on('draw.dt', function () {
+    var all = $('input.track-checkbox');
+    if (all.length === 0) { $('#selectAll').prop('checked', false); return; }
+    var checked = all.length === all.filter(':checked').length;
+    $('#selectAll').prop('checked', checked);
+    // re-init popovers after redraw
+    $('[data-bs-toggle="popover"]').popover({html:false});
+  });
+
+  // Build back link for GET with params (location, kmradius, selected...)
+  var backLink = $('#backToListLink');
+  var baseUrl = "{{ url_for('track_by_location') }}";
+  var selectedFromServer = {{ selected|tojson if selected is defined else '[]' }};
+  var locationVal = {{ location|tojson }};
+  var kmVal = {{ kmradius|tojson }};
+
+  function buildBackHref(selectedVals) {
+    var params = new URLSearchParams();
+    if (locationVal) params.append('location', locationVal);
+    if (kmVal) params.append('kmradius', kmVal);
+    selectedVals.forEach(function (v) { params.append('selected', v); });
+    var qs = params.toString();
+    return qs ? (baseUrl + '?' + qs) : baseUrl;
+  }
+
+  // Use server-provided selected if present, otherwise read from checkboxes
+  var selVals = [];
+  if (selectedFromServer && selectedFromServer.length) {
+    selVals = selectedFromServer;
+  } else {
+    $('input.track-checkbox:checked').each(function () { selVals.push(this.value); });
+  }
+
+  backLink.attr('href', buildBackHref(selVals));
+
+  // also update link when user toggles checkboxes client-side
+  $('input.track-checkbox').on('change', function () {
+    var curr = [];
+    $('input.track-checkbox:checked').each(function () { curr.push(this.value); });
+    backLink.attr('href', buildBackHref(curr));
+  });
+
+  // show/hide sections based on map_available
+  var mapAvailable = {{ 'true' if map_available else 'false' }};
+  if (mapAvailable) {
+    $('#tracksSection').hide();
+    $('#mapSection').show();
+  } else {
+    $('#mapSection').hide();
+    $('#tracksSection').show();
+  }
+
+});
 </script>
 {% endblock %}
 

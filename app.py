@@ -720,7 +720,6 @@ def show_tracks():
     # strong/vivid colors for better contrast on the map
     colors = [
         "#e6194b",
-        "#3cb44b",
         "#4363d8",
         "#f58231",
         "#911eb4",
@@ -770,7 +769,61 @@ def show_tracks():
         ).add_to(m)
 
     if all_points:
-        m.fit_bounds(all_points)
+        # robust bounding and zoom handling to avoid world-map hang
+        import math
+
+        lats = [p[0] for p in all_points]
+        lons = [p[1] for p in all_points]
+        min_lat, max_lat = min(lats), max(lats)
+        min_lon, max_lon = min(lons), max(lons)
+
+        # handle International Date Line crossing
+        lon_span = max_lon - min_lon
+        adjusted = False
+        if lon_span > 180:
+            # shift longitudes > 0 by -360 for correct span calc
+            lons_adj = [lon - 360 if lon > 0 else lon for lon in lons]
+            min_lon, max_lon = min(lons_adj), max(lons_adj)
+            lon_span = max_lon - min_lon
+            adjusted = True
+
+        lat_span = max_lat - min_lat
+
+        # compute center
+        center_lat = sum(lats) / len(lats)
+        if adjusted:
+            center_lon = (min_lon + max_lon) / 2
+            if center_lon < -180:
+                center_lon += 360
+        else:
+            center_lon = sum(lons) / len(lons)
+
+        # determine a reasonable zoom level from span (heuristic)
+        span_deg = max(lat_span, lon_span)
+        if span_deg == 0:
+            zoom = 15
+        else:
+            try:
+                zoom = int(max(2, min(15, round(math.log2(360.0 / span_deg)))))
+            except Exception:
+                zoom = 12
+
+        # apply center and zoom
+        m.location = [center_lat, center_lon]
+        m.zoom_start = zoom
+
+        # build bounds (normalize longitudes for leaflet if needed)
+        if adjusted:
+            bounds = [[min_lat, min_lon], [max_lat, max_lon]]
+            bounds = [[b[0], (b[1] + 360) if b[1] < -180 else b[1]] for b in bounds]
+        else:
+            bounds = [[min_lat, min_lon], [max_lat, max_lon]]
+
+        # try fit_bounds with padding; if it fails, keep explicit center/zoom
+        try:
+            m.fit_bounds(bounds, padding=(50, 50))
+        except Exception:
+            pass
 
     # ensure maps dir exists and save
     maps_dir = os.path.join("static", "maps")
@@ -848,12 +901,136 @@ def track_by_location():
     location = ""
     message = ""
     kmradius = 5
+    selected = []
 
     if request.method == "POST":
+        # Accept both search and show-on-map actions via POST
         location = request.form.get("location", "").strip()
         kmradius = request.form.get("kmradius", 5).strip()
+        # If user clicked Show on map, selected checkboxes will be present
+        selected = request.form.getlist("selected")
+        if selected:
+            # generate map for selected tracks
+            colors = [
+                "#e6194b",
+                "#4363d8",
+                "#f58231",
+                "#911eb4",
+                "#46f0f0",
+                "#f032e6",
+                "#ffe119",
+                "#008080",
+                "#000000",
+            ]
+            m = folium.Map(tiles="OpenStreetMap")
+            all_points = []
+            for idx, val in enumerate(selected):
+                try:
+                    date_part, filename = val.split("::", 1)
+                    dt = datetime.fromisoformat(date_part)
+                    year, month, day = dt.year, dt.month, dt.day
+                except Exception:
+                    parts = val.split("::")
+                    if len(parts) >= 2:
+                        date_part = parts[0]
+                        filename = parts[1]
+                        try:
+                            dt = datetime.fromisoformat(date_part)
+                            year, month, day = dt.year, dt.month, dt.day
+                        except Exception:
+                            continue
+                    else:
+                        continue
+                points = get_gpx_points(year, month, day, filename)
+                if not points:
+                    continue
+                all_points.extend(points)
+                color = colors[idx % len(colors)]
+                folium.PolyLine(
+                    locations=[(lat, lon) for lat, lon in points],
+                    color=color,
+                    weight=4,
+                    opacity=0.8,
+                    tooltip=filename,
+                ).add_to(m)
+            if all_points:
+                # reuse robust fit logic used elsewhere
+                import math
+                lats = [p[0] for p in all_points]
+                lons = [p[1] for p in all_points]
+                min_lat, max_lat = min(lats), max(lats)
+                min_lon, max_lon = min(lons), max(lons)
+                lon_span = max_lon - min_lon
+                adjusted = False
+                if lon_span > 180:
+                    lons_adj = [lon - 360 if lon > 0 else lon for lon in lons]
+                    min_lon, max_lon = min(lons_adj), max(lons_adj)
+                    lon_span = max_lon - min_lon
+                    adjusted = True
+                lat_span = max_lat - min_lat
+                center_lat = sum(lats) / len(lats)
+                if adjusted:
+                    center_lon = (min_lon + max_lon) / 2
+                    if center_lon < -180:
+                        center_lon += 360
+                else:
+                    center_lon = sum(lons) / len(lons)
+                span_deg = max(lat_span, lon_span)
+                if span_deg == 0:
+                    zoom = 15
+                else:
+                    try:
+                        zoom = int(max(2, min(15, round(math.log2(360.0 / span_deg)))))
+                    except Exception:
+                        zoom = 12
+                m.location = [center_lat, center_lon]
+                m.zoom_start = zoom
+                if adjusted:
+                    bounds = [[min_lat, min_lon], [max_lat, max_lon]]
+                    bounds = [[b[0], (b[1] + 360) if b[1] < -180 else b[1]] for b in bounds]
+                else:
+                    bounds = [[min_lat, min_lon], [max_lat, max_lon]]
+                try:
+                    m.fit_bounds(bounds, padding=(50, 50))
+                except Exception:
+                    pass
+            maps_dir = os.path.join("static", "maps")
+            os.makedirs(maps_dir, exist_ok=True)
+            map_path = os.path.join(maps_dir, "track_by_location.html")
+            m.save(map_path)
+
+            # render map view, preserve selected and search params for back link
+            return render_template(
+                "track_by_location.html",
+                tracks=[],
+                location=location,
+                kmradius=kmradius,
+                message=message,
+                map_available=True,
+                map_url="/" + map_path,
+                selected=selected,
+            )
+
+        # otherwise treat as search
         if location:
             tracks, message = get_tracks_by_latlon(location, int(kmradius))
+            # attach keywords for tracks
+            track_names = [t.get('name') for t in tracks if t.get('name')]
+            keywords_map = get_keywords_for_tracks(track_names)
+            for t in tracks:
+                t['keywords'] = keywords_map.get(t.get('name'), [])
+
+    else:
+        # GET - possibly coming from Back to list with query params
+        location = request.values.get('location', '').strip() if request.values else ''
+        kmradius = request.values.get('kmradius', kmradius) if request.values else kmradius
+        selected = request.values.getlist('selected') if request.values else []
+        if location:
+            tracks, message = get_tracks_by_latlon(location, int(kmradius))
+            track_names = [t.get('name') for t in tracks if t.get('name')]
+            keywords_map = get_keywords_for_tracks(track_names)
+            for t in tracks:
+                t['keywords'] = keywords_map.get(t.get('name'), [])
 
     return render_template(
         "track_by_location.html",
@@ -861,6 +1038,8 @@ def track_by_location():
         location=location,
         kmradius=kmradius,
         message=message,
+        selected=selected,
+        map_available=False,
     )
 
 

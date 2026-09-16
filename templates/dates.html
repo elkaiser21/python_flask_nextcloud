@@ -50,7 +50,7 @@
         <tbody>
         {% for date in dates %}
         <tr>
-            <td><a href="{% if mode == "photo" or mode == None%} {{ url_for('photo_by_date', date=date.date_taken) }} {% endif %} {% if mode == "track" %} {{ url_for('track_by_date', date=date.date_taken) }} {% endif %}">{{ date.date_taken }}</a></td>
+            <td><a href="{% if mode == "photo" or mode == None%} {{ url_for('photo_by_date', date=date.date_taken) }} {% endif %} {% if mode == "track" %} {{ url_for('show_tracks', start_date=date.date_taken, end_date=date.date_taken) }} {% endif %}">{{ date.date_taken }}</a></td>
             <td class="text-end">{{ date.amount }}</td>
         </tr>
         {% endfor %}

@@ -44,8 +44,9 @@
               <th>Name</th>
               <th>type</th>
               <th>info</th>
+                <th class="text-end" style="width:80px;">length (km)</th>
               <th class="text-center" style="width:48px;"><span class="visually-hidden">Keywords</span></th>
-              <th class="text-end" style="width:80px;">length (km)</th>
+
               <th class="text-center" style="width:48px;"><span class="visually-hidden">Download</span></th>
             </tr>
           </thead>
@@ -58,10 +59,11 @@
               <td>{{ track.name }}</td>
               <td>{{ track.type }}</td>
               <td>{{ track.extra_info }}</td>
-              <td class="text-center" style="width:48px;">
+
+              <td class="text-end text-nowrap" style="width:80px;">{{ track.len }}</td>
+                <td class="text-center" style="width:48px;">
                 <button type="button" class="btn btn-sm btn-outline-secondary keywords-btn" data-bs-toggle="popover" data-bs-trigger="focus" title="Keywords" data-bs-content="{{ (track.keywords|join(', '))|e }}">...</button>
               </td>
-              <td class="text-end text-nowrap" style="width:80px;">{{ track.len }}</td>
               <td class="text-center text-nowrap" style="width:48px;">
                 <a class="btn btn-sm btn-outline-secondary" title="Download GPX" href="{{ url_for('download_track', year=track.date_taken.year, month=track.date_taken.month, day=track.date_taken.day, filename=track.name) }}">
                   <i class="bi bi-download" aria-hidden="true"></i>

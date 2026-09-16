@@ -91,54 +91,203 @@ def login_required(view):
     return wrapped
 
 
+# def get_tracks_by_latlon(location, radius):
+#     """
+#     A location string and a radius in km is selecting all the tracks within that area.
+#     For the selection of tracks the middle lat-lon is used
+#     """
+#     center_lat, center_lon, message = geo_utils.geocode_location(location)
+#     if message:
+#         return [], message
+#     min_lat, max_lat, min_lon, max_lon = geo_utils.bounding_box(
+#         center_lat, center_lon, radius
+#     )
+#
+#     conn = mysql.connector.connect(**db_config)
+#     cursor = conn.cursor(dictionary=True)
+#     query = """
+#     SELECT
+#             t.name,
+#             t.date_taken,
+#             t.extra_info,
+#             t.type,
+#             ROUND(t.length/1000, 2) as len,
+#             ROUND(t.middle_lat, 6) as lat,
+#             ROUND(t.middle_lon, 6) as lon,
+#         (
+#             6371 * ACOS(
+#                 COS(RADIANS(%s)) *
+#                 COS(RADIANS(t.middle_lat)) *
+#                 COS(RADIANS(t.middle_lon) - RADIANS(%s)) +
+#                 SIN(RADIANS(%s)) *
+#                 SIN(RADIANS(t.middle_lat))
+#             )
+#         ) AS distance
+#     FROM track t
+#     WHERE
+#         t.middle_lat BETWEEN %s AND %s
+#         AND t.middle_lon BETWEEN %s AND %s
+#     HAVING distance <= %s
+#     ORDER BY distance;
+#     """
+#
+#     params = (
+#         center_lat,
+#         center_lon,
+#         center_lat,
+#         min_lat,
+#         max_lat,
+#         min_lon,
+#         max_lon,
+#         radius,
+#     )
+#
+#     cursor.execute(query, params)
+#     results = cursor.fetchall()
+#
+#     cursor.close()
+#     conn.close()
+#
+#     return results, message
+
 def get_tracks_by_latlon(location, radius):
     """
-    A location string and a radius in km is selecting all the tracks within that area.
-    For the selection of tracks the middle lat-lon is used
+    Select all tracks where the start, middle, or end point
+    is within the specified radius (km) of the location.
     """
+
     center_lat, center_lon, message = geo_utils.geocode_location(location)
     if message:
         return [], message
+
     min_lat, max_lat, min_lon, max_lon = geo_utils.bounding_box(
         center_lat, center_lon, radius
     )
 
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor(dictionary=True)
+
     query = """
     SELECT
-            t.name,
-            t.date_taken,
-            t.extra_info,
-            t.type,
-            ROUND(t.length/1000, 2) as len,
-            ROUND(t.middle_lat, 6) as lat,
-            ROUND(t.middle_lon, 6) as lon,
-        (
-            6371 * ACOS(
-                COS(RADIANS(%s)) *
-                COS(RADIANS(t.middle_lat)) *
-                COS(RADIANS(t.middle_lon) - RADIANS(%s)) +
-                SIN(RADIANS(%s)) *
-                SIN(RADIANS(t.middle_lat))
-            )
+        t.name,
+        t.date_taken,
+        t.extra_info,
+        t.type,
+        ROUND(t.length / 1000, 2) AS len,
+
+        -- Coordinates of the closest track point
+        CASE
+            WHEN start_distance <= middle_distance
+                 AND start_distance <= end_distance
+                THEN ROUND(t.start_lat, 6)
+            WHEN middle_distance <= end_distance
+                THEN ROUND(t.middle_lat, 6)
+            ELSE ROUND(t.end_lat, 6)
+        END AS lat,
+
+        CASE
+            WHEN start_distance <= middle_distance
+                 AND start_distance <= end_distance
+                THEN ROUND(t.start_lon, 6)
+            WHEN middle_distance <= end_distance
+                THEN ROUND(t.middle_lon, 6)
+            ELSE ROUND(t.end_lon, 6)
+        END AS lon,
+
+        LEAST(
+            start_distance,
+            middle_distance,
+            end_distance
         ) AS distance
-    FROM track t
-    WHERE
-        t.middle_lat BETWEEN %s AND %s
-        AND t.middle_lon BETWEEN %s AND %s
-    HAVING distance <= %s
+
+    FROM
+    (
+        SELECT
+            t.*,
+
+            (
+                6371 * ACOS(
+                    LEAST(1, GREATEST(-1,
+                        COS(RADIANS(%s)) *
+                        COS(RADIANS(t.start_lat)) *
+                        COS(RADIANS(t.start_lon) - RADIANS(%s)) +
+                        SIN(RADIANS(%s)) *
+                        SIN(RADIANS(t.start_lat))
+                    ))
+                )
+            ) AS start_distance,
+
+            (
+                6371 * ACOS(
+                    LEAST(1, GREATEST(-1,
+                        COS(RADIANS(%s)) *
+                        COS(RADIANS(t.middle_lat)) *
+                        COS(RADIANS(t.middle_lon) - RADIANS(%s)) +
+                        SIN(RADIANS(%s)) *
+                        SIN(RADIANS(t.middle_lat))
+                    ))
+                )
+            ) AS middle_distance,
+
+            (
+                6371 * ACOS(
+                    LEAST(1, GREATEST(-1,
+                        COS(RADIANS(%s)) *
+                        COS(RADIANS(t.end_lat)) *
+                        COS(RADIANS(t.end_lon) - RADIANS(%s)) +
+                        SIN(RADIANS(%s)) *
+                        SIN(RADIANS(t.end_lat))
+                    ))
+                )
+            ) AS end_distance
+
+        FROM track t
+        WHERE
+            (
+                t.start_lat BETWEEN %s AND %s
+                AND t.start_lon BETWEEN %s AND %s
+            )
+            OR
+            (
+                t.middle_lat BETWEEN %s AND %s
+                AND t.middle_lon BETWEEN %s AND %s
+            )
+            OR
+            (
+                t.end_lat BETWEEN %s AND %s
+                AND t.end_lon BETWEEN %s AND %s
+            )
+    ) AS t
+
+    WHERE LEAST(
+        start_distance,
+        middle_distance,
+        end_distance
+    ) <= %s
+
     ORDER BY distance;
     """
 
     params = (
-        center_lat,
-        center_lon,
-        center_lat,
-        min_lat,
-        max_lat,
-        min_lon,
-        max_lon,
+        # start
+        center_lat, center_lon, center_lat,
+
+        # middle
+        center_lat, center_lon, center_lat,
+
+        # end
+        center_lat, center_lon, center_lat,
+
+        # bounding box - start
+        min_lat, max_lat, min_lon, max_lon,
+
+        # bounding box - middle
+        min_lat, max_lat, min_lon, max_lon,
+
+        # bounding box - end
+        min_lat, max_lat, min_lon, max_lon,
+
+        # final radius
         radius,
     )
 
@@ -149,7 +298,6 @@ def get_tracks_by_latlon(location, radius):
     conn.close()
 
     return results, message
-
 
 def get_tracks_by_keyword(keywords, extra_info=None, min_len_m=None, max_len_m=None):
     """

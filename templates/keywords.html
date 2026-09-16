@@ -50,7 +50,7 @@
         <tbody>
         {% for keyword in keywords %}
         <tr>
-            <td><a href="{% if mode == "photo" or mode == None%} {{ url_for('photo_by_keyword', keyword=keyword.keyword) }} {% endif %} {% if mode == "track" %} {{ url_for('track_by_keyword', keyword=keyword.keyword) }} {% endif %}">{{ keyword.keyword }}</a></td>
+            <td><a href="{% if mode == "photo" or mode == None%} {{ url_for('photo_by_keyword', keyword=keyword.keyword) }} {% endif %} {% if mode == "track" %} {{ url_for('show_tracks', keyword=keyword.keyword) }} {% endif %}">{{ keyword.keyword }}</a></td>
             <td class="text-end">{{ keyword.amount }}</td>
         </tr>
         {% endfor %}

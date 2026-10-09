@@ -4,3 +4,4 @@ app.simple.py
 flask_example.py
 GetPicture.py
 stderr.log
+.env

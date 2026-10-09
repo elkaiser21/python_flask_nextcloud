@@ -1,6 +1,8 @@
 import logging
 import os
 
+from dotenv import load_dotenv
+
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from urllib.parse import unquote
@@ -33,18 +35,23 @@ import classes
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+load_dotenv()
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-this")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
-GPX_DIR = "/home/w7667388/trackfiles"
-
+GPX_DIR = os.environ.get("GPX_DIR")
 NEXTCLOUD_USER = os.environ.get("NEXTCLOUD_USER")
 NEXTCLOUD_PASSWORD = os.environ.get("NEXTCLOUD_PASSWORD")
 NEXTCLOUD_DAV_URL = os.environ.get("NEXTCLOUD_DAV_URL")
 NEXTCLOUD_PHOTO_DIR = os.environ.get("NEXTCLOUD_PHOTO_SYNC_DIR")
 NEXTCLOUD_PHOTO_ARCHIVE_DIR = os.environ.get("NEXTCLOUD_PHOTO_ARCHIVE_DIR")
 NEXTCLOUD_TRACK_DIR = os.environ.get("NEXTCLOUD_TRACK_SYNC_DIR")
+DB_HOST = os.environ.get("DB_HOST")
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
+DB_NAME = os.environ.get("DB_NAME")
 
 # centralized requests timeout (seconds)
 REQUEST_TIMEOUT = 60
@@ -62,10 +69,10 @@ app.config.update(
 )
 
 db_config = {
-    "host": "localhost",
-    "user": os.environ.get("DB_USER"),
-    "password": os.environ.get("DB_PASSWORD"),
-    "database": os.environ.get("DB_NAME"),
+    "host": DB_HOST,
+    "user": DB_USER,
+    "password": DB_PASSWORD,
+    "database": DB_NAME,
 }
 
 
@@ -89,66 +96,6 @@ def login_required(view):
         return view(*args, **kwargs)
 
     return wrapped
-
-
-# def get_tracks_by_latlon(location, radius):
-#     """
-#     A location string and a radius in km is selecting all the tracks within that area.
-#     For the selection of tracks the middle lat-lon is used
-#     """
-#     center_lat, center_lon, message = geo_utils.geocode_location(location)
-#     if message:
-#         return [], message
-#     min_lat, max_lat, min_lon, max_lon = geo_utils.bounding_box(
-#         center_lat, center_lon, radius
-#     )
-#
-#     conn = mysql.connector.connect(**db_config)
-#     cursor = conn.cursor(dictionary=True)
-#     query = """
-#     SELECT
-#             t.name,
-#             t.date_taken,
-#             t.extra_info,
-#             t.type,
-#             ROUND(t.length/1000, 2) as len,
-#             ROUND(t.middle_lat, 6) as lat,
-#             ROUND(t.middle_lon, 6) as lon,
-#         (
-#             6371 * ACOS(
-#                 COS(RADIANS(%s)) *
-#                 COS(RADIANS(t.middle_lat)) *
-#                 COS(RADIANS(t.middle_lon) - RADIANS(%s)) +
-#                 SIN(RADIANS(%s)) *
-#                 SIN(RADIANS(t.middle_lat))
-#             )
-#         ) AS distance
-#     FROM track t
-#     WHERE
-#         t.middle_lat BETWEEN %s AND %s
-#         AND t.middle_lon BETWEEN %s AND %s
-#     HAVING distance <= %s
-#     ORDER BY distance;
-#     """
-#
-#     params = (
-#         center_lat,
-#         center_lon,
-#         center_lat,
-#         min_lat,
-#         max_lat,
-#         min_lon,
-#         max_lon,
-#         radius,
-#     )
-#
-#     cursor.execute(query, params)
-#     results = cursor.fetchall()
-#
-#     cursor.close()
-#     conn.close()
-#
-#     return results, message
 
 def get_tracks_by_latlon(location, radius):
     """
@@ -1584,5 +1531,5 @@ def get_photos_request(url: str) -> Response:
     return r
 
 
-# if __name__ == "__main__":
-#     app.run(debug=True)
+if __name__ == "__main__":
+    app.run(debug=True)

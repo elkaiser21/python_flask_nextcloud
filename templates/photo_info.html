@@ -17,16 +17,35 @@
     }
 </style>
 
-<a href="{{ url_for('show_photo',
-      year=year,
-      month=month,
-      day=day,
-      filename=filename) }}" download>
+<button type="button" class="p-0 border-0 bg-transparent w-100" data-bs-toggle="modal" data-bs-target="#downloadConfirmation" aria-label="View download confirmation for image">
 <img src="{{ url_for('show_photo',
       year=year,
       month=month,
       day=day,
-      filename=filename) }}"></a>
+      filename=filename) }}" alt="{{ filename }}">
+</button>
+
+<div class="modal fade" id="downloadConfirmation" tabindex="-1" aria-labelledby="downloadConfirmationLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="downloadConfirmationLabel">Download image?</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">Do you want to download this image?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <a id="downloadImageButton" class="btn btn-primary" href="{{ url_for('show_photo',
+                      year=year,
+                      month=month,
+                      day=day,
+                      filename=filename) }}" download="{{ filename }}">Download</a>
+            </div>
+        </div>
+    </div>
+</div>
 
 <p>
     &nbsp;
@@ -76,4 +95,19 @@
     </a>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.getElementById('downloadImageButton').addEventListener('click', function () {
+        var downloadButton = this;
+        downloadButton.blur();
+
+        window.setTimeout(function () {
+            bootstrap.Modal.getOrCreateInstance(
+                document.getElementById('downloadConfirmation')
+            ).hide();
+        }, 250);
+    });
+</script>
 {% endblock %}

@@ -77,7 +77,7 @@
   <div class="alert alert-warning">{{ message }}</div>
 {% endif %}
 
-<form method="post">
+<form id="showMapForm" method="post">
   {% if tracks %}
   <div id="tracksSection" class="table-responsive">
     <table id="tracksTable" class="table table-striped table-bordered table-hover">
@@ -127,6 +127,13 @@
   {% endif %}
 </form>
 
+<div id="mapLoadingOverlay" class="map-loading-overlay" role="status" aria-live="polite" {% if not map_available %}hidden{% endif %}>
+  <div class="text-center">
+    <div class="spinner-border text-primary" aria-hidden="true"></div>
+    <div class="mt-2">Generating and loading map...</div>
+  </div>
+</div>
+
 <div id="mapSection" style="display:none;">
   {% if map_available %}
     <h3>Map</h3>
@@ -139,9 +146,41 @@
 
 {% endblock %}
 
+{% block extra_css %}
+<style>
+  .map-loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.75);
+  }
+
+  .map-loading-overlay:not([hidden]) {
+    display: flex;
+  }
+</style>
+{% endblock %}
+
 {% block extra_js %}
 <script>
     $(document).ready(function () {
+      var mapForm = document.getElementById('showMapForm');
+      var mapLoadingOverlay = document.getElementById('mapLoadingOverlay');
+      var mapSubmitting = false;
+
+      mapForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        if (mapSubmitting) return;
+
+        mapSubmitting = true;
+        mapLoadingOverlay.hidden = false;
+        window.setTimeout(function () {
+          HTMLFormElement.prototype.submit.call(mapForm);
+        }, 50);
+      });
+
       var table = null;
       if ($('#tracksTable').length) {
         table = $('#tracksTable').DataTable({
@@ -251,6 +290,15 @@
       if (mapAvailable) {
         $('#tracksSection').hide();
         $('#mapSection').show();
+        var mapFrame = document.querySelector('#mapSection iframe');
+        mapFrame.addEventListener('load', function () {
+          mapLoadingOverlay.hidden = true;
+        });
+        if (mapFrame.contentDocument &&
+            mapFrame.contentDocument.URL !== 'about:blank' &&
+            mapFrame.contentDocument.readyState === 'complete') {
+          mapLoadingOverlay.hidden = true;
+        }
       } else {
         $('#mapSection').hide();
         $('#tracksSection').show();
